@@ -1,0 +1,95 @@
+.python-runner {
+  background: var(--md-code-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 8px;
+  margin: 1.2em 0;
+  overflow: hidden;
+}
+
+.python-runner__toolbar {
+  align-items: center;
+  background: var(--md-default-bg-color);
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.45rem 0.7rem;
+}
+
+.python-runner__title {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.python-runner__run {
+  background: var(--md-accent-fg-color);
+  border: 0;
+  border-radius: 6px;
+  color: var(--md-accent-bg-color);
+  cursor: pointer;
+  font: 700 0.72rem var(--md-text-font, sans-serif);
+  min-height: 1.7rem;
+  padding: 0.2rem 0.65rem;
+}
+
+.python-runner__run:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.python-runner__code,
+.python-runner__output {
+  border-radius: 0;
+  margin: 0;
+}
+
+.python-runner__code {
+  border: 0;
+}
+
+.python-runner__code[hidden] {
+  display: none;
+}
+
+.python-runner__code code {
+  display: block;
+  padding: 0.85rem 1rem;
+  white-space: pre;
+}
+
+.python-runner__editor {
+  background: var(--md-code-bg-color);
+}
+
+.python-runner .cm-editor {
+  font-size: 0.85em;
+  min-height: 6.5rem;
+}
+
+.python-runner .cm-scroller {
+  overflow: auto;
+}
+
+.python-runner .cm-content {
+  min-height: 6.5rem;
+}
+
+.python-runner .cm-lineNumbers .cm-gutterElement {
+  padding-left: 0.6rem;
+  padding-right: 0.45rem;
+}
+
+.python-runner__output {
+  background: var(--md-default-bg-color);
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color);
+  min-height: 2.2rem;
+  padding: 0.75rem 1rem;
+  white-space: pre-wrap;
+}
+
+.python-runner__output.is-error {
+  color: var(--md-code-hl-special-color);
+}

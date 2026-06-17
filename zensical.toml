@@ -5,7 +5,51 @@ site_author = "COMP 110"
 docs_dir = "docs"
 site_dir = "site"
 dev_addr = "0.0.0.0:8000"
+extra_css = ["stylesheets/python-runner.css"]
+extra_javascript = ["javascripts/python-runner.js"]
 nav = [
   {"Home" = "index.md"},
+  {"Runnable Python Demo" = "python-functions.md"},
   {"About" = "about.md"},
 ]
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+"pymdownx.betterem" = {}
+"pymdownx.caret" = {}
+"pymdownx.details" = {}
+"pymdownx.inlinehilite" = {}
+"pymdownx.keys" = {}
+"pymdownx.magiclink" = {}
+"pymdownx.mark" = {}
+"pymdownx.smartsymbols" = {}
+"pymdownx.tasklist" = { custom_checkbox = true }
+"pymdownx.tilde" = {}
+toc = { permalink = true }
+
+[project.markdown_extensions."pymdownx.arithmatex"]
+generic = true
+
+[project.markdown_extensions."pymdownx.emoji"]
+emoji_generator = "zensical.extensions.emoji.to_svg"
+emoji_index = "zensical.extensions.emoji.twemoji"
+
+[project.markdown_extensions."pymdownx.highlight"]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+
+[project.markdown_extensions."pymdownx.superfences"]
+custom_fences = [
+  { name = "mermaid", class = "mermaid" },
+  { name = "python_runner", class = "python-runner", format = "markdown_plugins.pyodide_fence.format_python_runner" },
+]
+
+[project.markdown_extensions."pymdownx.tabbed"]
+alternate_style = true
+combine_header_slug = true

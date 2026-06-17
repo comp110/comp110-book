@@ -4,10 +4,10 @@ sync:
 	uv sync
 
 serve:
-	uv run zensical serve
+	uv run python -m zensical serve
 
 build:
-	uv run zensical build
+	uv run python -m zensical build
 
 clean:
 	rm -rf site
