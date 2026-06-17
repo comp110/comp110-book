@@ -118,6 +118,47 @@ def test_python_runner_examples_are_editable_and_run() -> None:
             expect(output).to_contain_text("ZeroDivisionError", timeout=30_000)
             expect(page.locator(".python-runner__diagnostic--error").first).to_be_visible()
 
+            page.goto(f"{base_url}/python-canvas/", wait_until="networkidle")
+            page.locator(".cm-editor").first.wait_for(
+                state="visible",
+                timeout=10_000,
+            )
+
+            assert page.locator("[data-python-canvas-demo]").count() == 1
+            assert page.locator("[data-python-runner-canvas]").count() == 1
+            assert page.locator("[data-python-runner]").count() == 1
+
+            page.locator(".python-runner__run").first.click()
+            canvas_output = page.locator(".python-runner__output").first
+            expect(canvas_output).to_contain_text(
+                "Drew a turtle-style spiral",
+                timeout=60_000,
+            )
+
+            non_background_pixels = page.evaluate(
+                """
+                () => {
+                  const canvas = document.querySelector("[data-python-runner-canvas]");
+                  const context = canvas.getContext("2d");
+                  const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+                  let count = 0;
+
+                  for (let index = 0; index < data.length; index += 4) {
+                    const red = data[index];
+                    const green = data[index + 1];
+                    const blue = data[index + 2];
+                    const alpha = data[index + 3];
+                    if (alpha > 0 && !(red === 248 && green === 250 && blue === 252)) {
+                      count += 1;
+                    }
+                  }
+
+                  return count;
+                }
+                """
+            )
+            assert non_background_pixels > 1000
+
             assert not any("CodeMirror failed to load" in msg for msg in messages)
             assert not any(msg.startswith("pageerror:") for msg in messages)
             browser.close()

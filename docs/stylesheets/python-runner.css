@@ -112,3 +112,20 @@
 .python-runner__diagnostic--info {
   text-decoration-color: var(--md-code-hl-function-color, #8250df);
 }
+
+.python-canvas-demo {
+  display: grid;
+  gap: 0.85rem;
+  margin: 1.4em 0;
+}
+
+.python-canvas-demo__canvas {
+  aspect-ratio: 12 / 7;
+  background: #f8fafc;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 8px;
+  display: block;
+  height: auto;
+  max-width: 100%;
+  width: 100%;
+}

@@ -10,6 +10,7 @@ extra_javascript = ["javascripts/python-runner.js"]
 nav = [
   {"Home" = "index.md"},
   {"Runnable Python Demo" = "python-functions.md"},
+  {"Python Canvas Demo" = "python-canvas.md"},
   {"About" = "about.md"},
 ]
 

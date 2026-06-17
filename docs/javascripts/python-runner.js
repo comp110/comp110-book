@@ -2,6 +2,124 @@
   const pyodideUrl = "https://cdn.jsdelivr.net/pyodide/v314.0.0/full/pyodide.js";
   const runnerFilename = "/tmp/python-runner.py";
   const displayFilename = "python-runner.py";
+  const canvasModuleFilename = "/tmp/browser_canvas.py";
+  const canvasStubFilename = "/tmp/browser_canvas.pyi";
+  const canvasBridgeSource = `
+from __future__ import annotations
+
+import inspect
+from typing import Any
+
+from js import window
+
+
+def _runner_id() -> str:
+    frame: Any = inspect.currentframe()
+    while frame is not None:
+        value = frame.f_globals.get("__python_canvas_runner_id")
+        if isinstance(value, str) and value:
+            return value
+        frame = frame.f_back
+    raise RuntimeError("browser_canvas can only be used from a python_runner example.")
+
+
+def _call(name: str, *args: object) -> None:
+    getattr(window.__pythonRunnerCanvasBridge, name)(_runner_id(), *args)
+
+
+def set_size(width: int, height: int) -> None:
+    _call("setSize", width, height)
+
+
+def clear(color: str = "#ffffff") -> None:
+    _call("clear", color)
+
+
+def line(
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    color: str = "#2563eb",
+    width: float = 3,
+) -> None:
+    _call("line", x1, y1, x2, y2, color, width)
+
+
+def rectangle(
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    fill: str | None = None,
+    stroke: str = "#0f172a",
+    line_width: float = 2,
+) -> None:
+    _call("rectangle", x, y, width, height, fill, stroke, line_width)
+
+
+def circle(
+    x: float,
+    y: float,
+    radius: float,
+    fill: str | None = None,
+    stroke: str = "#0f172a",
+    line_width: float = 2,
+) -> None:
+    _call("circle", x, y, radius, fill, stroke, line_width)
+
+
+def text(
+    message: str,
+    x: float,
+    y: float,
+    color: str = "#0f172a",
+    size: int = 18,
+    align: str = "center",
+) -> None:
+    _call("text", message, x, y, color, size, align)
+`;
+  const canvasBridgeStub = `
+from typing import Literal
+
+TextAlign = Literal["left", "center", "right"]
+
+def set_size(width: int, height: int) -> None: ...
+def clear(color: str = "#ffffff") -> None: ...
+def line(
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    color: str = "#2563eb",
+    width: float = 3,
+) -> None: ...
+def rectangle(
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    fill: str | None = None,
+    stroke: str = "#0f172a",
+    line_width: float = 2,
+) -> None: ...
+def circle(
+    x: float,
+    y: float,
+    radius: float,
+    fill: str | None = None,
+    stroke: str = "#0f172a",
+    line_width: float = 2,
+) -> None: ...
+def text(
+    message: str,
+    x: float,
+    y: float,
+    color: str = "#0f172a",
+    size: int = 18,
+    align: TextAlign = "center",
+) -> None: ...
+`;
   const codeMirrorUrls = {
     highlight: "https://esm.sh/@lezer/highlight@1",
     language: "https://esm.sh/@codemirror/language@6",
@@ -12,7 +130,135 @@
 
   let pyodidePromise;
   let codeMirrorPromise;
+  let canvasModuleReady = false;
   let mypyPromise;
+  let nextRunnerId = 0;
+
+  function numberOr(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
+  function colorOr(value, fallback) {
+    return typeof value === "string" && value ? value : fallback;
+  }
+
+  function ensureRunnerId(widget) {
+    if (!widget.dataset.pythonRunnerId) {
+      nextRunnerId += 1;
+      widget.dataset.pythonRunnerId = `python-runner-${nextRunnerId}`;
+    }
+    return widget.dataset.pythonRunnerId;
+  }
+
+  function findRunnerById(runnerId) {
+    return Array.from(document.querySelectorAll("[data-python-runner-id]"))
+      .find((widget) => widget.dataset.pythonRunnerId === String(runnerId));
+  }
+
+  function getCanvasContext(runnerId) {
+    const widget = findRunnerById(runnerId);
+    const demo = widget ? widget.closest("[data-python-canvas-demo]") : null;
+    const canvas = demo ? demo.querySelector("[data-python-runner-canvas]") : null;
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      throw new Error("No HTML canvas is paired with this Python runner.");
+    }
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("This browser could not create a 2D canvas context.");
+    }
+
+    return { canvas, context };
+  }
+
+  window.__pythonRunnerCanvasBridge = {
+    setSize(runnerId, width, height) {
+      const { canvas } = getCanvasContext(runnerId);
+      canvas.width = Math.max(1, Math.floor(numberOr(width, canvas.width)));
+      canvas.height = Math.max(1, Math.floor(numberOr(height, canvas.height)));
+    },
+
+    clear(runnerId, color) {
+      const { canvas, context } = getCanvasContext(runnerId);
+      context.save();
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      if (color) {
+        context.fillStyle = colorOr(color, "#ffffff");
+        context.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      context.restore();
+    },
+
+    line(runnerId, x1, y1, x2, y2, color, width) {
+      const { context } = getCanvasContext(runnerId);
+      context.save();
+      context.strokeStyle = colorOr(color, "#2563eb");
+      context.lineWidth = Math.max(0.5, numberOr(width, 3));
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.beginPath();
+      context.moveTo(numberOr(x1, 0), numberOr(y1, 0));
+      context.lineTo(numberOr(x2, 0), numberOr(y2, 0));
+      context.stroke();
+      context.restore();
+    },
+
+    rectangle(runnerId, x, y, width, height, fill, stroke, lineWidth) {
+      const { context } = getCanvasContext(runnerId);
+      const left = numberOr(x, 0);
+      const top = numberOr(y, 0);
+      const rectWidth = numberOr(width, 0);
+      const rectHeight = numberOr(height, 0);
+      context.save();
+      if (fill) {
+        context.fillStyle = colorOr(fill, "#ffffff");
+        context.fillRect(left, top, rectWidth, rectHeight);
+      }
+      if (stroke) {
+        context.strokeStyle = colorOr(stroke, "#0f172a");
+        context.lineWidth = Math.max(0.5, numberOr(lineWidth, 2));
+        context.strokeRect(left, top, rectWidth, rectHeight);
+      }
+      context.restore();
+    },
+
+    circle(runnerId, x, y, radius, fill, stroke, lineWidth) {
+      const { context } = getCanvasContext(runnerId);
+      context.save();
+      context.beginPath();
+      context.arc(
+        numberOr(x, 0),
+        numberOr(y, 0),
+        Math.max(0, numberOr(radius, 0)),
+        0,
+        Math.PI * 2,
+      );
+      if (fill) {
+        context.fillStyle = colorOr(fill, "#ffffff");
+        context.fill();
+      }
+      if (stroke) {
+        context.strokeStyle = colorOr(stroke, "#0f172a");
+        context.lineWidth = Math.max(0.5, numberOr(lineWidth, 2));
+        context.stroke();
+      }
+      context.restore();
+    },
+
+    text(runnerId, message, x, y, color, size, align) {
+      const { context } = getCanvasContext(runnerId);
+      const textAlign = ["left", "center", "right"].includes(align) ? align : "center";
+      context.save();
+      context.fillStyle = colorOr(color, "#0f172a");
+      context.font = `${Math.max(1, numberOr(size, 18))}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      context.textAlign = textAlign;
+      context.textBaseline = "middle";
+      context.fillText(String(message), numberOr(x, 0), numberOr(y, 0));
+      context.restore();
+    },
+  };
 
   function loadScript() {
     const existing = document.querySelector(`script[src="${pyodideUrl}"]`);
@@ -310,6 +556,21 @@ await micropip.install(["mypy-extensions==1.1.0", "pathspec==0.12.1"])
     return mypyPromise;
   }
 
+  async function ensureCanvasModule(pyodide) {
+    if (canvasModuleReady) {
+      return;
+    }
+
+    pyodide.FS.writeFile(canvasModuleFilename, canvasBridgeSource.trimStart());
+    pyodide.FS.writeFile(canvasStubFilename, canvasBridgeStub.trimStart());
+    await pyodide.runPythonAsync(`
+import sys
+if "/tmp" not in sys.path:
+    sys.path.insert(0, "/tmp")
+`);
+    canvasModuleReady = true;
+  }
+
   async function checkSyntax(pyodide, code) {
     pyodide.globals.set("__markdown_runner_source", code);
 
@@ -416,8 +677,9 @@ for __markdown_runner_line in __markdown_runner_stdout.splitlines():
     };
   }
 
-  async function executePython(pyodide, code) {
+  async function executePython(pyodide, code, widget) {
     pyodide.globals.set("__markdown_runner_source", code);
+    pyodide.globals.set("__markdown_runner_canvas_runner_id", ensureRunnerId(widget));
 
     const result = await pyodide.runPythonAsync(`
 import contextlib
@@ -432,8 +694,11 @@ __markdown_runner_diagnostics = []
 
 try:
     __markdown_runner_code = compile(__markdown_runner_source, "${displayFilename}", "exec")
+    __markdown_runner_globals = {
+        "__python_canvas_runner_id": __markdown_runner_canvas_runner_id,
+    }
     with contextlib.redirect_stdout(__markdown_runner_stdout), contextlib.redirect_stderr(__markdown_runner_stderr):
-        exec(__markdown_runner_code, {})
+        exec(__markdown_runner_code, __markdown_runner_globals)
 except Exception as __markdown_runner_error:
     __markdown_runner_failed = True
     traceback.print_exc(file=__markdown_runner_stderr)
@@ -484,6 +749,9 @@ except Exception as __markdown_runner_error:
         return;
       }
 
+      outputText(output, "Preparing canvas helpers...", false);
+      await ensureCanvasModule(pyodide);
+
       outputText(output, "Type checking...", false);
       const typeCheckResult = await typeCheckPython(pyodide, code);
       if (typeCheckResult.failed) {
@@ -493,7 +761,7 @@ except Exception as __markdown_runner_error:
       }
 
       outputText(output, "Running...", false);
-      const executionResult = await executePython(pyodide, code);
+      const executionResult = await executePython(pyodide, code, widget);
       setEditorDiagnostics(widget, executionResult.diagnostics);
       outputText(output, executionResult.output, executionResult.failed);
     } catch (error) {
@@ -506,6 +774,7 @@ except Exception as __markdown_runner_error:
   function initialize(root) {
     root.querySelectorAll("[data-python-runner]:not([data-python-runner-ready])")
       .forEach((widget) => {
+        ensureRunnerId(widget);
         widget.setAttribute("data-python-runner-ready", "true");
         installEditor(widget);
         widget.querySelector(".python-runner__run")
