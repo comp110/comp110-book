@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import http.server
+import re
 import subprocess
 import sys
 import threading
@@ -71,7 +72,51 @@ def test_python_runner_examples_are_editable_and_run() -> None:
 
             page.locator(".python-runner__run").first.click()
             output = page.locator(".python-runner__output").first
-            expect(output).to_contain_text("edited in codemirror", timeout=30_000)
+            expect(output).to_contain_text("edited in codemirror", timeout=60_000)
+
+            def replace_editor_text(source: str) -> None:
+                page.evaluate(
+                    """
+                    (source) => {
+                      const editor = document
+                        .querySelector("[data-python-runner]")
+                        .pythonRunnerEditor;
+                      editor.dispatch({
+                        changes: {
+                          from: 0,
+                          to: editor.state.doc.length,
+                          insert: source,
+                        },
+                      });
+                    }
+                    """,
+                    source,
+                )
+
+            replace_editor_text(
+                'def answer() -> int:\n'
+                '    return "wrong"\n\n'
+                'print(answer())\n'
+            )
+            page.locator(".python-runner__run").first.click()
+            expect(output).to_contain_text("Incompatible return value type", timeout=60_000)
+            expect(output).to_have_class(re.compile(r"\bis-error\b"))
+            expect(page.locator(".python-runner__diagnostic--error").first).to_be_visible()
+
+            replace_editor_text("def broken(:\n    pass\n")
+            page.locator(".python-runner__run").first.click()
+            expect(output).to_contain_text("SyntaxError", timeout=30_000)
+            expect(output).to_contain_text("python-runner.py")
+            expect(page.locator(".python-runner__diagnostic--error").first).to_be_visible()
+
+            replace_editor_text(
+                "def divide(left: int, right: int) -> float:\n"
+                "    return left / right\n\n"
+                "print(divide(1, 0))\n"
+            )
+            page.locator(".python-runner__run").first.click()
+            expect(output).to_contain_text("ZeroDivisionError", timeout=30_000)
+            expect(page.locator(".python-runner__diagnostic--error").first).to_be_visible()
 
             assert not any("CodeMirror failed to load" in msg for msg in messages)
             assert not any(msg.startswith("pageerror:") for msg in messages)

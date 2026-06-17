@@ -93,3 +93,22 @@
 .python-runner__output.is-error {
   color: var(--md-code-hl-special-color);
 }
+
+.python-runner__diagnostic {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.18em;
+}
+
+.python-runner__diagnostic--error {
+  text-decoration-color: var(--md-code-hl-special-color, #cf222e);
+}
+
+.python-runner__diagnostic--warning {
+  text-decoration-color: var(--md-code-hl-number-color, #b35900);
+}
+
+.python-runner__diagnostic--info {
+  text-decoration-color: var(--md-code-hl-function-color, #8250df);
+}
