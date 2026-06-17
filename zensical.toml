@@ -1,0 +1,11 @@
+[project]
+site_name = "Nextgen"
+site_description = "A Zensical-based static website."
+site_author = "COMP 110"
+docs_dir = "docs"
+site_dir = "site"
+dev_addr = "0.0.0.0:8000"
+nav = [
+  {"Home" = "index.md"},
+  {"About" = "about.md"},
+]
