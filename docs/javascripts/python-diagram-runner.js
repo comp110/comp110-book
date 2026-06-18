@@ -7,6 +7,7 @@
   const codeMirrorUrls = {
     highlight: "https://esm.sh/@lezer/highlight@1",
     language: "https://esm.sh/@codemirror/language@6",
+    state: "https://esm.sh/@codemirror/state@6",
     view: "https://esm.sh/@codemirror/view@6",
     python: "https://esm.sh/@codemirror/lang-python@6",
   };
@@ -39,10 +40,13 @@
     const canvas = widget.querySelector("[data-python-diagram-canvas]");
     const currentStep = widget.querySelector("[data-python-diagram-current-step]");
     const resetButton = widget.querySelector(".python-diagram-runner__reset");
-    const stepButton = widget.querySelector(".python-diagram-runner__step");
+    const runBreakpointButton = widget.querySelector(".python-diagram-runner__run-breakpoint");
+    const stepIntoButton = widget.querySelector(".python-diagram-runner__step-into");
+    const stepOverButton = widget.querySelector(".python-diagram-runner__step-over");
+    const stepOutButton = widget.querySelector(".python-diagram-runner__step-out");
     const runButton = widget.querySelector(".python-diagram-runner__run");
 
-    if (!codeBlock || !codeElement || !canvas || !currentStep || !resetButton || !stepButton || !runButton) {
+    if (!codeBlock || !codeElement || !canvas || !currentStep || !resetButton || !runBreakpointButton || !stepIntoButton || !stepOverButton || !stepOutButton || !runButton) {
       return;
     }
 
@@ -55,12 +59,15 @@
       state.dirty = true;
       state.trace = [];
       state.stepIndex = 0;
+      clearBreakpoints(widget);
       hideOutput(widget);
       renderCurrentStepPanel(currentStep, { line: null, message: "Source changed" }, 0, 0);
       drawEmptyDiagram(canvas, "Source changed");
     };
 
     widget.pythonDiagramRunner = {
+      breakpointEffect: null,
+      breakpoints: new Set(),
       dirty: true,
       editor: null,
       handleSourceChange,
@@ -71,8 +78,15 @@
     };
 
     source.onChange(handleSourceChange);
+    const state = widget.pythonDiagramRunner;
+    state.setBreakpoint = (lineNumber, on = true) => setBreakpointLine(widget, lineNumber, on);
+    state.toggleBreakpoint = (lineNumber) => toggleBreakpointLine(widget, lineNumber);
+
     resetButton.addEventListener("click", () => resetRunner(widget));
-    stepButton.addEventListener("click", () => stepRunner(widget));
+    runBreakpointButton.addEventListener("click", () => runToBreakpoint(widget));
+    stepIntoButton.addEventListener("click", () => stepIntoRunner(widget));
+    stepOverButton.addEventListener("click", () => stepOverRunner(widget));
+    stepOutButton.addEventListener("click", () => stepOutRunner(widget));
     runButton.addEventListener("click", () => runToEnd(widget));
 
     resetRunner(widget);
@@ -148,16 +162,32 @@
     source.element.insertAdjacentElement("beforebegin", host);
 
     try {
-      const { EditorView, highlightStyle, lineNumbers, python, syntaxHighlighting } = await getCodeMirror();
+      const {
+        EditorView,
+        GutterMarker,
+        RangeSet,
+        StateEffect,
+        StateField,
+        gutter,
+        highlightStyle,
+        lineNumbers,
+        python,
+        syntaxHighlighting,
+      } = await getCodeMirror();
       if (!widget.isConnected) {
         host.remove();
         return;
       }
 
+      const breakpointTools = createBreakpointTools(widget, StateEffect, StateField, RangeSet, gutter, GutterMarker);
+      const runnerState = getRunnerState(widget);
+      runnerState.breakpointEffect = breakpointTools.effect;
+
       const view = new EditorView({
         doc: source.value,
         parent: host,
         extensions: [
+          breakpointTools.extension,
           lineNumbers(),
           python(),
           syntaxHighlighting(highlightStyle, { fallback: true }),
@@ -209,10 +239,16 @@
       codeMirrorPromise = Promise.all([
         import(codeMirrorUrls.highlight),
         import(codeMirrorUrls.language),
+        import(codeMirrorUrls.state),
         import(codeMirrorUrls.view),
         import(codeMirrorUrls.python),
-      ]).then(([highlight, language, view, pythonLanguage]) => ({
+      ]).then(([highlight, language, state, view, pythonLanguage]) => ({
         EditorView: view.EditorView,
+        GutterMarker: view.GutterMarker,
+        RangeSet: state.RangeSet,
+        StateEffect: state.StateEffect,
+        StateField: state.StateField,
+        gutter: view.gutter,
         highlightStyle: createHighlightStyle(language.HighlightStyle, highlight.tags),
         lineNumbers: view.lineNumbers,
         python: pythonLanguage.python,
@@ -234,6 +270,93 @@
       { tag: tags.operator, color: "var(--md-code-hl-operator-color, #0550ae)" },
       { tag: tags.punctuation, color: "var(--md-code-fg-color, #24292f)" },
     ]);
+  }
+
+  function createBreakpointTools(widget, StateEffect, StateField, RangeSet, gutter, GutterMarker) {
+    class BreakpointMarker extends GutterMarker {
+      toDOM() {
+        const marker = document.createElement("span");
+        marker.className = "python-diagram-runner__breakpoint-marker";
+        marker.title = "Breakpoint";
+        return marker;
+      }
+    }
+
+    const marker = new BreakpointMarker();
+    const effect = StateEffect.define({
+      map(value, changes) {
+        return { on: value.on, pos: changes.mapPos(value.pos) };
+      },
+    });
+    const field = StateField.define({
+      create() {
+        return RangeSet.empty;
+      },
+      update(set, transaction) {
+        let next = set.map(transaction.changes);
+        transaction.effects.forEach((item) => {
+          if (!item.is(effect)) {
+            return;
+          }
+          if (item.value.on) {
+            next = next.update({ add: [marker.range(item.value.pos)] });
+          } else {
+            next = next.update({ filter: (from) => from !== item.value.pos });
+          }
+        });
+        return next;
+      },
+      provide: (breakpointField) => gutter({
+        class: "python-diagram-runner__breakpoint-gutter",
+        domEventHandlers: {
+          mousedown(view, line) {
+            const lineNumber = view.state.doc.lineAt(line.from).number;
+            toggleBreakpointLine(widget, lineNumber);
+            return true;
+          },
+        },
+        initialSpacer: () => marker,
+        markers: (view) => view.state.field(breakpointField),
+      }),
+    });
+
+    return { effect, extension: field };
+  }
+
+  function toggleBreakpointLine(widget, lineNumber) {
+    const state = getRunnerState(widget);
+    setBreakpointLine(widget, lineNumber, !state.breakpoints.has(lineNumber));
+  }
+
+  function setBreakpointLine(widget, lineNumber, on) {
+    const state = getRunnerState(widget);
+    const line = Number(lineNumber);
+    if (!Number.isInteger(line) || line < 1) {
+      return;
+    }
+    const enabled = Boolean(on);
+    if (state.breakpoints.has(line) === enabled) {
+      renderCurrentStep(widget);
+      return;
+    }
+    if (enabled) {
+      state.breakpoints.add(line);
+    } else {
+      state.breakpoints.delete(line);
+    }
+    if (state.source.view && state.breakpointEffect && line <= state.source.view.state.doc.lines) {
+      const position = state.source.view.state.doc.line(line).from;
+      state.source.view.dispatch({ effects: state.breakpointEffect.of({ on: enabled, pos: position }) });
+    }
+    renderCurrentStep(widget);
+  }
+
+  function clearBreakpoints(widget) {
+    const state = getRunnerState(widget);
+    if (!state || !state.breakpoints || !state.breakpoints.size) {
+      return;
+    }
+    Array.from(state.breakpoints).forEach((lineNumber) => setBreakpointLine(widget, lineNumber, false));
   }
 
   function getRunnerState(widget) {
@@ -300,14 +423,85 @@
   }
 
   function stepRunner(widget) {
+    stepIntoRunner(widget);
+  }
+
+  function stepIntoRunner(widget) {
     if (!ensureFreshTrace(widget)) {
       return;
     }
     const state = getRunnerState(widget);
-    if (state.stepIndex < state.trace.length - 1) {
-      state.stepIndex += 1;
-      renderCurrentStep(widget);
+    moveToStep(widget, Math.min(state.stepIndex + 1, state.trace.length - 1));
+  }
+
+  function stepOverRunner(widget) {
+    if (!ensureFreshTrace(widget)) {
+      return;
     }
+    const state = getRunnerState(widget);
+    const current = state.trace[state.stepIndex];
+    if (!current || state.stepIndex >= state.trace.length - 1 || !current.line) {
+      stepIntoRunner(widget);
+      return;
+    }
+
+    const currentDepth = current.callDepth || 0;
+    let target = state.trace.length - 1;
+    for (let index = state.stepIndex + 1; index < state.trace.length; index += 1) {
+      const candidate = state.trace[index];
+      if (candidate.failed || ((candidate.callDepth || 0) <= currentDepth && candidate.line !== current.line)) {
+        target = index;
+        break;
+      }
+    }
+    moveToStep(widget, target);
+  }
+
+  function stepOutRunner(widget) {
+    if (!ensureFreshTrace(widget)) {
+      return;
+    }
+    const state = getRunnerState(widget);
+    const current = state.trace[state.stepIndex];
+    const currentDepth = current ? current.callDepth || 0 : 0;
+    if (!current || currentDepth <= 0 || state.stepIndex >= state.trace.length - 1) {
+      return;
+    }
+
+    let target = state.trace.length - 1;
+    for (let index = state.stepIndex + 1; index < state.trace.length; index += 1) {
+      const candidate = state.trace[index];
+      if (candidate.failed || candidate.snapshot.activeFrameId !== current.snapshot.activeFrameId || (candidate.callDepth || 0) < currentDepth) {
+        target = index;
+        break;
+      }
+    }
+    moveToStep(widget, target);
+  }
+
+  function runToBreakpoint(widget) {
+    if (!ensureFreshTrace(widget)) {
+      return;
+    }
+    const state = getRunnerState(widget);
+    const target = nextBreakpointIndex(state);
+    moveToStep(widget, target);
+    const current = state.trace[state.stepIndex];
+    if (current && state.breakpoints.has(current.line)) {
+      outputText(widget, `Paused at breakpoint on line ${current.line}.`, false);
+    } else {
+      outputText(widget, current && current.failed ? current.message : "No breakpoint hit; finished diagram trace.", Boolean(current && current.failed));
+    }
+  }
+
+  function nextBreakpointIndex(state) {
+    for (let index = state.stepIndex + 1; index < state.trace.length; index += 1) {
+      const line = state.trace[index].line;
+      if (line && state.breakpoints.has(line)) {
+        return index;
+      }
+    }
+    return Math.max(0, state.trace.length - 1);
   }
 
   function runToEnd(widget) {
@@ -315,21 +509,43 @@
       return;
     }
     const state = getRunnerState(widget);
-    state.stepIndex = Math.max(0, state.trace.length - 1);
-    renderCurrentStep(widget);
+    moveToStep(widget, Math.max(0, state.trace.length - 1));
     const current = state.trace[state.stepIndex];
     outputText(widget, current && current.failed ? current.message : "Finished diagram trace.", Boolean(current && current.failed));
+  }
+
+  function moveToStep(widget, stepIndex) {
+    const state = getRunnerState(widget);
+    state.stepIndex = Math.max(0, Math.min(stepIndex, state.trace.length - 1));
+    renderCurrentStep(widget);
   }
 
   function renderCurrentStep(widget) {
     const state = getRunnerState(widget);
     const canvas = widget.querySelector("[data-python-diagram-canvas]");
     const currentStep = widget.querySelector("[data-python-diagram-current-step]");
-    const stepButton = widget.querySelector(".python-diagram-runner__step");
+    const runBreakpointButton = widget.querySelector(".python-diagram-runner__run-breakpoint");
+    const runButton = widget.querySelector(".python-diagram-runner__run");
+    const stepIntoButton = widget.querySelector(".python-diagram-runner__step-into");
+    const stepOverButton = widget.querySelector(".python-diagram-runner__step-over");
+    const stepOutButton = widget.querySelector(".python-diagram-runner__step-out");
     const current = state.trace[state.stepIndex];
+    const atEnd = state.trace.length > 0 && state.stepIndex >= state.trace.length - 1;
 
-    if (stepButton) {
-      stepButton.disabled = state.stepIndex >= state.trace.length - 1;
+    if (runBreakpointButton) {
+      runBreakpointButton.disabled = atEnd || !state.breakpoints.size;
+    }
+    if (runButton) {
+      runButton.disabled = atEnd;
+    }
+    if (stepIntoButton) {
+      stepIntoButton.disabled = atEnd;
+    }
+    if (stepOverButton) {
+      stepOverButton.disabled = atEnd;
+    }
+    if (stepOutButton) {
+      stepOutButton.disabled = atEnd || !current || (current.callDepth || 0) <= 0;
     }
     renderCurrentStepPanel(currentStep, current, state.stepIndex + 1, state.trace.length);
     renderDiagram(canvas, current ? current.snapshot : emptySnapshot("Ready"));
@@ -1028,9 +1244,17 @@
         `Type error on Line ${line.number}: ${frame.name} should return ${fn.returnType}, got ${value.type}.`,
       );
     }
+    const returnDepth = activeCallDepth(state);
     frame.returnValue = value;
     state.activeFrameId = findPreviousOpenFrameId(state, frame.id);
-    addStep(state, line.number, `Return statement: stored RV ${formatValue(value)} and jumped back to RA:${frame.returnAddress}.`, lineCodeSpan(line));
+    addStep(
+      state,
+      line.number,
+      `Return statement: stored RV ${formatValue(value)} and jumped back to RA:${frame.returnAddress}.`,
+      lineCodeSpan(line),
+      null,
+      { callDepth: returnDepth },
+    );
     return { didReturn: true, value };
   }
 
@@ -1073,9 +1297,17 @@
     }
 
     const noneValue = makeNoneValue();
+    const returnDepth = activeCallDepth(state);
     frame.returnValue = noneValue;
     state.activeFrameId = findPreviousOpenFrameId(state, frame.id);
-    addStep(state, fn.endLine, `Function ${fn.name} finished without an explicit return; stored RV None.`, lineSpanByNumber(state, fn.endLine));
+    addStep(
+      state,
+      fn.endLine,
+      `Function ${fn.name} finished without an explicit return; stored RV None.`,
+      lineSpanByNumber(state, fn.endLine),
+      null,
+      { callDepth: returnDepth },
+    );
     return noneValue;
   }
 
@@ -1556,6 +1788,12 @@
     return makeValue("bool", value);
   }
 
+  function activeCallDepth(state) {
+    const openFrames = state.frames.filter((frame) => !frame.returnValue);
+    const activeIndex = openFrames.findIndex((frame) => frame.id === state.activeFrameId);
+    return Math.max(0, activeIndex);
+  }
+
   function snapshotMemory(state, line, message, failed) {
     return {
       activeFrameId: state.activeFrameId,
@@ -1579,7 +1817,7 @@
     };
   }
 
-  function addStep(state, line, message, failedOrHighlight = false, highlight = null) {
+  function addStep(state, line, message, failedOrHighlight = false, highlight = null, metadata = {}) {
     if (state.trace.length >= maxTraceSteps) {
       throw new DiagramError(line || 1, "Stopped after too many diagram steps. Check for recursion.");
     }
@@ -1587,6 +1825,7 @@
     const failed = typeof failedOrHighlight === "boolean" ? failedOrHighlight : false;
     const syntaxHighlight = highlight || (typeof failedOrHighlight === "object" ? failedOrHighlight : null);
     state.trace.push({
+      callDepth: metadata.callDepth ?? activeCallDepth(state),
       failed,
       highlight: syntaxHighlight,
       line,

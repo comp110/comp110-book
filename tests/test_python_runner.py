@@ -353,6 +353,27 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             )
             assert page.locator(".python-diagram-runner__editor .cm-lineNumbers").count() == 1
             assert page.locator(".python-diagram-runner__editor .cm-content .cm-line span").count() > 0
+            expect(page.locator(".python-diagram-runner__run-breakpoint")).to_be_disabled()
+            assert page.locator(".python-diagram-runner__step-into").count() == 1
+            assert page.locator(".python-diagram-runner__step-over").count() == 1
+            assert page.locator(".python-diagram-runner__step-out").count() == 1
+
+            page.evaluate(
+                """
+                () => document
+                  .querySelector("[data-python-diagram-runner]")
+                  .pythonDiagramRunner.setBreakpoint(14, true)
+                """
+            )
+            expect(page.locator(".python-diagram-runner__run-breakpoint")).to_be_enabled()
+            assert page.evaluate(
+                """
+                () => document
+                  .querySelector("[data-python-diagram-runner]")
+                  .pythonDiagramRunner.breakpoints.has(14)
+                """
+            ) is True
+            assert page.locator(".python-diagram-runner__breakpoint-marker").count() >= 1
 
             current_step = page.locator("[data-python-diagram-current-step]")
             expect(current_step).to_contain_text(
@@ -398,8 +419,19 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             )
             assert selected_source().startswith("def square(value: int) -> int:")
 
-            page.locator(".python-diagram-runner__run").click()
             diagram_output = page.locator(".python-runner__output").first
+            page.locator(".python-diagram-runner__run-breakpoint").click()
+            expect(diagram_output).to_contain_text("Paused at breakpoint on line 14")
+            expect(current_step).to_contain_text("Line 14")
+            assert selected_source() == "current"
+
+            page.locator(".python-diagram-runner__step-over").click()
+            expect(current_step).to_contain_text("Line 15")
+
+            page.locator(".python-diagram-runner__step-out").click()
+            expect(current_step).to_contain_text("Return statement: stored RV 14")
+
+            page.locator(".python-diagram-runner__run").click()
             expect(diagram_output).to_contain_text("Finished diagram trace.")
             expect(current_step).to_contain_text("Program complete.")
 

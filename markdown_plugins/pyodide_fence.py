@@ -104,7 +104,12 @@ def format_python_diagram_runner(
         f'<span class="python-runner__title">{escaped_title}</span>'
         '<div class="python-diagram-runner__controls">'
         '<button class="python-diagram-runner__reset" type="button">Reset</button>'
-        '<button class="python-diagram-runner__step" type="button">Step</button>'
+        '<button class="python-diagram-runner__run-breakpoint" '
+        'type="button">Run to Breakpoint</button>'
+        '<button class="python-diagram-runner__step python-diagram-runner__step-into" '
+        'type="button">Step Into</button>'
+        '<button class="python-diagram-runner__step-over" type="button">Step Over</button>'
+        '<button class="python-diagram-runner__step-out" type="button">Step Out</button>'
         '<button class="python-runner__run python-diagram-runner__run" '
         'type="button">Run</button>'
         "</div>"

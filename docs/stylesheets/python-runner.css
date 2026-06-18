@@ -227,7 +227,10 @@
 }
 
 .python-diagram-runner__reset,
-.python-diagram-runner__step {
+.python-diagram-runner__run-breakpoint,
+.python-diagram-runner__step,
+.python-diagram-runner__step-over,
+.python-diagram-runner__step-out {
   background: var(--md-default-bg-color);
   box-shadow: inset 0 0 0 1px var(--md-default-fg-color--lightest);
   color: var(--md-default-fg-color);
@@ -265,6 +268,26 @@
 .python-diagram-runner__editor .cm-editor,
 .python-diagram-runner__editor .cm-content {
   min-height: 14rem;
+}
+
+.python-diagram-runner__breakpoint-gutter .cm-gutterElement {
+  align-items: center;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  min-width: 1.1rem;
+  padding: 0 0.22rem;
+}
+
+.python-diagram-runner__breakpoint-marker {
+  background: #dc2626;
+  border: 1px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.35);
+  display: block;
+  height: 0.58rem;
+  width: 0.58rem;
 }
 
 .python-diagram-runner__current-step {
