@@ -11,6 +11,11 @@ This is a small Zensical static documentation site managed with `uv`. Source con
 
 The preview server is configured in `zensical.toml` as `0.0.0.0:8000`.
 
+## Sandbox Notes
+
+- In this environment, sandboxed shell commands and `apply_patch` will fail before running. Edit, build, and test commands with `sandbox_permissions: "require_escalated"` and a concise justification instead of retrying the same sandboxed command.
+- If `apply_patch` fails for that sandbox reason, use a narrowly scoped elevated edit command with explicit guards around the expected text, then inspect the result and run the relevant build/test command.
+
 ## Project Map
 
 - `zensical.toml`: site configuration, navigation, Markdown extensions, and registered assets.
