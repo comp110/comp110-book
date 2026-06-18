@@ -6,6 +6,68 @@ from html import escape
 from typing import Any
 
 
+def _debug_icon(paths: str) -> str:
+    return (
+        '<svg class="python-diagram-runner__control-icon" '
+        'viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" '
+        'aria-hidden="true" focusable="false">'
+        f'{paths}</svg>'
+    )
+
+
+def _diagram_icon_button(classes: str, label: str, icon: str) -> str:
+    escaped_label = escape(label, quote=True)
+    return (
+        f'<button class="{classes}" type="button" '
+        f'title="{escaped_label}" aria-label="{escaped_label}">'
+        f'{icon}</button>'
+    )
+
+
+DEBUG_ICONS = {
+    "reset": _debug_icon(
+        '<path d="M4 12a8 8 0 1 0 2.35-5.65"></path>'
+        '<path d="M4 4v5h5"></path>'
+    ),
+    "run_breakpoint": _debug_icon(
+        '<polygon points="6.7 5.5 14.2 12 6.7 18.5 6.7 5.5" fill="currentColor" stroke="none"></polygon>'
+        '<circle class="python-diagram-runner__icon-breakpoint-ring" cx="18" cy="12" r="3.35"></circle>'
+        '<circle class="python-diagram-runner__icon-breakpoint-dot" cx="18" cy="12" r="2.45"></circle>'
+    ),
+    "step_back": _debug_icon(
+        '<path d="M6 5v14"></path>'
+        '<path d="M18 12H8"></path>'
+        '<path d="m12 8-4 4 4 4"></path>'
+    ),
+    "step_into": _debug_icon(
+        '<path d="M12 4v11"></path>'
+        '<path d="m7.5 10.5 4.5 4.5 4.5-4.5"></path>'
+        '<path d="M6.5 20h11"></path>'
+    ),
+    "step_over": _debug_icon(
+        '<path d="M5 14a7 7 0 0 1 12.4-4.45"></path>'
+        '<path d="M17.4 5.8V9.55H13.6"></path>'
+        '<path d="M8 19h8"></path>'
+    ),
+    "step_out": _debug_icon(
+        '<path d="M12 20V9"></path>'
+        '<path d="m7.5 13.5 4.5-4.5 4.5 4.5"></path>'
+        '<path d="M6.5 4h11"></path>'
+    ),
+    "run": _debug_icon(
+        '<polygon points="6.7 5.5 15.2 12 6.7 18.5 6.7 5.5" fill="currentColor" stroke="none"></polygon>'
+        '<path d="M18 5.5v13"></path>'
+    ),
+    "fullscreen": _debug_icon(
+        '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path>'
+        '<path d="M16 3h3a2 2 0 0 1 2 2v3"></path>'
+        '<path d="M21 16v3a2 2 0 0 1-2 2h-3"></path>'
+        '<path d="M8 21H5a2 2 0 0 1-2-2v-3"></path>'
+    ),
+}
+
+
 def _format_runner(
     source: str,
     class_name: str,
@@ -103,15 +165,14 @@ def format_python_diagram_runner(
         '<div class="python-runner__toolbar">'
         f'<span class="python-runner__title">{escaped_title}</span>'
         '<div class="python-diagram-runner__controls">'
-        '<button class="python-diagram-runner__reset" type="button">Reset</button>'
-        '<button class="python-diagram-runner__run-breakpoint" '
-        'type="button">Run to Breakpoint</button>'
-        '<button class="python-diagram-runner__step python-diagram-runner__step-into" '
-        'type="button">Step Into</button>'
-        '<button class="python-diagram-runner__step-over" type="button">Step Over</button>'
-        '<button class="python-diagram-runner__step-out" type="button">Step Out</button>'
-        '<button class="python-runner__run python-diagram-runner__run" '
-        'type="button">Run</button>'
+        f'{_diagram_icon_button("python-diagram-runner__reset", "Reset", DEBUG_ICONS["reset"])}'
+        f'{_diagram_icon_button("python-diagram-runner__step-back", "Step Back", DEBUG_ICONS["step_back"])}'
+        f'{_diagram_icon_button("python-diagram-runner__run-breakpoint", "Run to Breakpoint", DEBUG_ICONS["run_breakpoint"])}'
+        f'{_diagram_icon_button("python-diagram-runner__step python-diagram-runner__step-into", "Step Into", DEBUG_ICONS["step_into"])}'
+        f'{_diagram_icon_button("python-diagram-runner__step-over", "Step Over", DEBUG_ICONS["step_over"])}'
+        f'{_diagram_icon_button("python-diagram-runner__step-out", "Step Out", DEBUG_ICONS["step_out"])}'
+        f'{_diagram_icon_button("python-diagram-runner__run", "Run to End", DEBUG_ICONS["run"])}'
+        f'{_diagram_icon_button("python-diagram-runner__fullscreen", "Full Screen", DEBUG_ICONS["fullscreen"])}'
         "</div>"
         "</div>"
         '<pre class="python-runner__code"><code class="language-python">'

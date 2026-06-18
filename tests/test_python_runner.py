@@ -323,7 +323,7 @@ def test_python_runner_examples_are_editable_and_run() -> None:
 
 def test_python_diagram_runner_steps_and_reports_errors() -> None:
     subprocess.run(
-        [sys.executable, "-m", "zensical", "build"],
+        [sys.executable, "-m", "zensical", "build", "--clean"],
         cwd=ROOT,
         check=True,
     )
@@ -354,9 +354,90 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             assert page.locator(".python-diagram-runner__editor .cm-lineNumbers").count() == 1
             assert page.locator(".python-diagram-runner__editor .cm-content .cm-line span").count() > 0
             expect(page.locator(".python-diagram-runner__run-breakpoint")).to_be_disabled()
+            expect(page.locator(".python-diagram-runner__step-back")).to_be_disabled()
+            assert page.locator(".python-diagram-runner__step-back").count() == 1
             assert page.locator(".python-diagram-runner__step-into").count() == 1
             assert page.locator(".python-diagram-runner__step-over").count() == 1
             assert page.locator(".python-diagram-runner__step-out").count() == 1
+            assert page.locator(".python-diagram-runner__fullscreen").count() == 1
+            assert page.locator(".python-diagram-runner__controls button svg").count() == 8
+            assert page.evaluate(
+                """
+                () => Array.from(
+                  document.querySelectorAll(".python-diagram-runner__controls button"),
+                ).map((button) => ({
+                  label: button.getAttribute("aria-label"),
+                  pressed: button.getAttribute("aria-pressed"),
+                  title: button.getAttribute("title"),
+                  text: button.textContent.trim(),
+                }))
+                """,
+            ) == [
+                {"label": "Reset", "pressed": None, "title": "Reset", "text": ""},
+                {"label": "Step Back", "pressed": None, "title": "Step Back", "text": ""},
+                {"label": "Run to Breakpoint", "pressed": None, "title": "Run to Breakpoint", "text": ""},
+                {"label": "Step Into", "pressed": None, "title": "Step Into", "text": ""},
+                {"label": "Step Over", "pressed": None, "title": "Step Over", "text": ""},
+                {"label": "Step Out", "pressed": None, "title": "Step Out", "text": ""},
+                {"label": "Run to End", "pressed": None, "title": "Run to End", "text": ""},
+                {"label": "Full Screen", "pressed": "false", "title": "Full Screen", "text": ""},
+            ]
+
+            page.locator(".python-diagram-runner__fullscreen").click()
+            page.wait_for_function(
+                """
+                () => document
+                  .querySelector("[data-python-diagram-runner]")
+                  .getAttribute("data-python-diagram-fullscreen") === "true"
+                """,
+            )
+            fullscreen_layout = page.evaluate(
+                """
+                () => {
+                  const widget = document.querySelector("[data-python-diagram-runner]");
+                  const editor = widget.querySelector(".python-diagram-runner__editor");
+                  const workspace = widget.querySelector(".python-diagram-runner__workspace");
+                  const button = widget.querySelector(".python-diagram-runner__fullscreen");
+                  const editorRect = editor.getBoundingClientRect();
+                  const workspaceRect = workspace.getBoundingClientRect();
+                  const widgetRect = widget.getBoundingClientRect();
+                  return {
+                    bodyLocked: document.body.classList.contains("python-diagram-runner-fullscreen-open"),
+                    buttonLabel: button.getAttribute("aria-label"),
+                    buttonPressed: button.getAttribute("aria-pressed"),
+                    editorLeft: editorRect.left,
+                    editorRight: editorRect.right,
+                    editorWidth: editorRect.width,
+                    widgetHeight: widgetRect.height,
+                    widgetWidth: widgetRect.width,
+                    workspaceLeft: workspaceRect.left,
+                    workspaceRight: workspaceRect.right,
+                    workspaceWidth: workspaceRect.width,
+                  };
+                }
+                """,
+            )
+            assert fullscreen_layout["bodyLocked"] is True
+            assert fullscreen_layout["buttonLabel"] == "Exit Full Screen"
+            assert fullscreen_layout["buttonPressed"] == "true"
+            assert fullscreen_layout["widgetWidth"] == page.viewport_size["width"]
+            assert fullscreen_layout["widgetHeight"] == page.viewport_size["height"]
+            assert fullscreen_layout["editorLeft"] < fullscreen_layout["workspaceLeft"]
+            assert fullscreen_layout["editorRight"] <= fullscreen_layout["workspaceLeft"] + 1
+            assert abs(fullscreen_layout["editorWidth"] - fullscreen_layout["workspaceWidth"]) <= 2
+
+            page.locator(".python-diagram-runner__fullscreen").click()
+            page.wait_for_function(
+                """
+                () => !document
+                  .querySelector("[data-python-diagram-runner]")
+                  .hasAttribute("data-python-diagram-fullscreen")
+                """,
+            )
+            expect(page.locator(".python-diagram-runner__fullscreen")).to_have_attribute(
+                "aria-label",
+                "Full Screen",
+            )
 
             page.evaluate(
                 """
@@ -376,9 +457,14 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             assert page.locator(".python-diagram-runner__breakpoint-marker").count() >= 1
 
             current_step = page.locator("[data-python-diagram-current-step]")
-            expect(current_step).to_contain_text(
-                "Established Stack, Heap, and Printed Output",
-            )
+            expect(current_step).to_be_hidden()
+            assert page.evaluate(
+                """
+                () => document
+                  .querySelector("[data-python-diagram-runner]")
+                  .pythonDiagramRunner.stepIndex
+                """,
+            ) == -1
 
             def selected_source() -> str:
                 return page.evaluate(
@@ -409,6 +495,58 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                     source,
                 )
 
+            def callout_geometry() -> dict[str, float | bool | str]:
+                return page.evaluate(
+                    """
+                    () => {
+                      const widget = document.querySelector("[data-python-diagram-runner]");
+                      const callout = widget.querySelector("[data-python-diagram-current-step]");
+                      const toolbar = widget.querySelector(".python-runner__toolbar");
+                      const source = widget.pythonDiagramRunner.source;
+                      const selection = source.view.state.selection.main;
+                      const start = source.view.coordsAtPos(selection.from, 1);
+                      const end = source.view.coordsAtPos(selection.to, -1) || start;
+                      const calloutRect = callout.getBoundingClientRect();
+                      const toolbarRect = toolbar.getBoundingClientRect();
+                      const anchorCenter = (Math.min(start.left, end.left) + Math.max(start.right || start.left, end.right || end.left)) / 2;
+                      const calloutCenter = calloutRect.left + calloutRect.width / 2;
+                      return {
+                        centerDelta: Math.abs(calloutCenter - anchorCenter),
+                        overlapsToolbar: !(calloutRect.right < toolbarRect.left || calloutRect.left > toolbarRect.right || calloutRect.bottom < toolbarRect.top || calloutRect.top > toolbarRect.bottom),
+                        placement: callout.dataset.placement || "",
+                        pointerX: parseFloat(getComputedStyle(callout).getPropertyValue("--python-diagram-callout-pointer-x")),
+                      };
+                    }
+                    """
+                )
+
+            page.locator(".python-diagram-runner__step").click()
+            expect(current_step).to_be_visible()
+            expect(current_step).to_contain_text(
+                "Established Stack, Heap, and Printed Output",
+            )
+            assert selected_source() == ""
+            expect(page.locator(".python-diagram-runner__step-back")).to_be_enabled()
+
+            page.locator(".python-diagram-runner__step-back").click()
+            expect(current_step).to_be_hidden()
+            expect(page.locator(".python-diagram-runner__step-back")).to_be_disabled()
+            assert selected_source() == ""
+            assert page.evaluate(
+                """
+                () => document
+                  .querySelector("[data-python-diagram-runner]")
+                  .pythonDiagramRunner.stepIndex
+                """,
+            ) == -1
+
+            page.locator(".python-diagram-runner__step").click()
+            expect(current_step).to_be_visible()
+            expect(current_step).to_contain_text(
+                "Established Stack, Heap, and Printed Output",
+            )
+            assert selected_source() == ""
+
             page.locator(".python-diagram-runner__step").click()
             expect(current_step).to_contain_text("Ignored comment.")
             assert selected_source() == "# Edit this example, then step through the diagram."
@@ -424,6 +562,18 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             expect(diagram_output).to_contain_text("Paused at breakpoint on line 14")
             expect(current_step).to_contain_text("Line 14")
             assert selected_source() == "current"
+            page.wait_for_function(
+                """
+                () => Boolean(document
+                  .querySelector("[data-python-diagram-current-step]")
+                  .dataset.placement)
+                """
+            )
+            geometry = callout_geometry()
+            assert geometry["placement"] in {"above", "below"}
+            assert geometry["centerDelta"] < 32
+            assert geometry["pointerX"] > 0
+            assert geometry["overlapsToolbar"] is False
 
             page.locator(".python-diagram-runner__step-over").click()
             expect(current_step).to_contain_text("Line 15")
@@ -495,6 +645,18 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                 '\n'
                 'print(double("bad"))\n'
             )
+            expect(current_step).to_be_hidden()
+            expect(diagram_output).to_be_hidden()
+            assert page.evaluate(
+                """
+                () => {
+                  const state = document
+                    .querySelector("[data-python-diagram-runner]")
+                    .pythonDiagramRunner;
+                  return state.stepIndex === -1 && state.trace.length > 0 && state.dirty === false;
+                }
+                """,
+            ) is True
             page.locator(".python-diagram-runner__run").click()
             expect(diagram_output).to_contain_text("Function Call Error on Line 4")
             expect(diagram_output).to_have_class(re.compile(r"\bis-error\b"))

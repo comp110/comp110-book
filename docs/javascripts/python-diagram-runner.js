@@ -41,12 +41,14 @@
     const currentStep = widget.querySelector("[data-python-diagram-current-step]");
     const resetButton = widget.querySelector(".python-diagram-runner__reset");
     const runBreakpointButton = widget.querySelector(".python-diagram-runner__run-breakpoint");
+    const stepBackButton = widget.querySelector(".python-diagram-runner__step-back");
     const stepIntoButton = widget.querySelector(".python-diagram-runner__step-into");
     const stepOverButton = widget.querySelector(".python-diagram-runner__step-over");
     const stepOutButton = widget.querySelector(".python-diagram-runner__step-out");
     const runButton = widget.querySelector(".python-diagram-runner__run");
+    const fullscreenButton = widget.querySelector(".python-diagram-runner__fullscreen");
 
-    if (!codeBlock || !codeElement || !canvas || !currentStep || !resetButton || !runBreakpointButton || !stepIntoButton || !stepOverButton || !stepOutButton || !runButton) {
+    if (!codeBlock || !codeElement || !canvas || !currentStep || !resetButton || !runBreakpointButton || !stepBackButton || !stepIntoButton || !stepOverButton || !stepOutButton || !runButton || !fullscreenButton) {
       return;
     }
 
@@ -58,11 +60,9 @@
       const state = widget.pythonDiagramRunner;
       state.dirty = true;
       state.trace = [];
-      state.stepIndex = 0;
+      state.stepIndex = -1;
       clearBreakpoints(widget);
-      hideOutput(widget);
-      renderCurrentStepPanel(currentStep, { line: null, message: "Source changed" }, 0, 0);
-      drawEmptyDiagram(canvas, "Source changed");
+      resetRunner(widget, { showOutput: false });
     };
 
     widget.pythonDiagramRunner = {
@@ -70,10 +70,11 @@
       breakpoints: new Set(),
       dirty: true,
       editor: null,
+      fallbackFullscreen: false,
       handleSourceChange,
       lastSource: "",
       source,
-      stepIndex: 0,
+      stepIndex: -1,
       trace: [],
     };
 
@@ -82,12 +83,25 @@
     state.setBreakpoint = (lineNumber, on = true) => setBreakpointLine(widget, lineNumber, on);
     state.toggleBreakpoint = (lineNumber) => toggleBreakpointLine(widget, lineNumber);
 
+    window.addEventListener("resize", () => renderCurrentStep(widget));
+    document.addEventListener("fullscreenchange", () => syncFullscreenState(widget));
+    window.addEventListener("keydown", (event) => {
+      const state = getRunnerState(widget);
+      if (event.key === "Escape" && state.fallbackFullscreen && isDiagramFullscreen(widget)) {
+        event.preventDefault();
+        setDiagramFullscreen(widget, false);
+      }
+    });
+
     resetButton.addEventListener("click", () => resetRunner(widget));
     runBreakpointButton.addEventListener("click", () => runToBreakpoint(widget));
+    stepBackButton.addEventListener("click", () => stepBackRunner(widget));
     stepIntoButton.addEventListener("click", () => stepIntoRunner(widget));
     stepOverButton.addEventListener("click", () => stepOverRunner(widget));
     stepOutButton.addEventListener("click", () => stepOutRunner(widget));
     runButton.addEventListener("click", () => runToEnd(widget));
+    fullscreenButton.addEventListener("click", () => toggleFullscreen(widget));
+    updateFullscreenButton(widget, false);
 
     resetRunner(widget);
     enhanceSourceEditor(widget, source).catch((error) => {
@@ -228,6 +242,7 @@
 
       source.setCodeMirrorView(view, host);
       getRunnerState(widget).editor = view;
+      renderCurrentStep(widget);
     } catch (error) {
       host.remove();
       throw error;
@@ -363,6 +378,104 @@
     return widget.pythonDiagramRunner;
   }
 
+  function isDiagramFullscreen(widget) {
+    return widget.getAttribute("data-python-diagram-fullscreen") === "true";
+  }
+
+  function toggleFullscreen(widget) {
+    if (isDiagramFullscreen(widget)) {
+      exitFullscreen(widget);
+      return;
+    }
+    enterFullscreen(widget);
+  }
+
+  function enterFullscreen(widget) {
+    const state = getRunnerState(widget);
+    state.fallbackFullscreen = false;
+    setDiagramFullscreen(widget, true);
+
+    if (!widget.requestFullscreen) {
+      state.fallbackFullscreen = true;
+      return;
+    }
+
+    widget.requestFullscreen().catch((error) => {
+      console.warn("Fullscreen request failed; using fixed fullscreen fallback.", error);
+      if (!isDiagramFullscreen(widget)) {
+        return;
+      }
+      state.fallbackFullscreen = true;
+      setDiagramFullscreen(widget, true);
+    });
+  }
+
+  function exitFullscreen(widget) {
+    const state = getRunnerState(widget);
+    if (document.fullscreenElement === widget && document.exitFullscreen) {
+      document.exitFullscreen().catch((error) => {
+        console.warn("Fullscreen exit failed; clearing diagram fullscreen state.", error);
+        state.fallbackFullscreen = false;
+        setDiagramFullscreen(widget, false);
+      });
+      return;
+    }
+    state.fallbackFullscreen = false;
+    setDiagramFullscreen(widget, false);
+  }
+
+  function syncFullscreenState(widget) {
+    const state = getRunnerState(widget);
+    if (document.fullscreenElement === widget) {
+      state.fallbackFullscreen = false;
+      setDiagramFullscreen(widget, true);
+      return;
+    }
+    if (!state.fallbackFullscreen) {
+      setDiagramFullscreen(widget, false);
+    }
+  }
+
+  function setDiagramFullscreen(widget, active) {
+    if (active) {
+      widget.setAttribute("data-python-diagram-fullscreen", "true");
+    } else {
+      widget.removeAttribute("data-python-diagram-fullscreen");
+    }
+    updateFullscreenButton(widget, active);
+    updateFullscreenBodyState();
+    scheduleDiagramLayoutRefresh(widget);
+  }
+
+  function updateFullscreenButton(widget, active) {
+    const button = widget.querySelector(".python-diagram-runner__fullscreen");
+    if (!button) {
+      return;
+    }
+    const label = active ? "Exit Full Screen" : "Full Screen";
+    button.setAttribute("aria-label", label);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.setAttribute("title", label);
+  }
+
+  function updateFullscreenBodyState() {
+    document.body.classList.toggle(
+      "python-diagram-runner-fullscreen-open",
+      Boolean(document.querySelector('[data-python-diagram-fullscreen="true"]')),
+    );
+  }
+
+  function scheduleDiagramLayoutRefresh(widget) {
+    window.requestAnimationFrame(() => {
+      const state = getRunnerState(widget);
+      if (state && state.editor && typeof state.editor.requestMeasure === "function") {
+        state.editor.requestMeasure();
+      }
+      renderCurrentStep(widget);
+      window.setTimeout(() => renderCurrentStep(widget), 180);
+    });
+  }
+
   function getOutput(widget) {
     return widget.querySelector(".python-runner__output");
   }
@@ -387,30 +500,34 @@
     output.textContent = text || "(no output)";
   }
 
-  function resetRunner(widget) {
+  function resetRunner(widget, options = {}) {
     const state = getRunnerState(widget);
     const canvas = widget.querySelector("[data-python-diagram-canvas]");
-    const currentStep = widget.querySelector("[data-python-diagram-current-step]");
+    const showOutput = options.showOutput !== false;
 
     try {
       const result = buildDiagramTrace(state.source.value);
       state.trace = result.trace;
-      state.stepIndex = 0;
+      state.stepIndex = -1;
       state.lastSource = state.source.value;
       state.dirty = false;
       renderCurrentStep(widget);
-      if (result.error) {
+      if (result.error && showOutput) {
         outputText(widget, result.error, true);
       } else {
         hideOutput(widget);
       }
     } catch (error) {
       state.trace = [];
-      state.stepIndex = 0;
+      state.stepIndex = -1;
       state.dirty = true;
-      renderCurrentStepPanel(currentStep, { line: null, message: "Diagram parse error" }, 0, 0);
+      renderCurrentStep(widget);
       drawEmptyDiagram(canvas, "Diagram parse error");
-      outputText(widget, error && error.message ? error.message : String(error), true);
+      if (showOutput) {
+        outputText(widget, error && error.message ? error.message : String(error), true);
+      } else {
+        hideOutput(widget);
+      }
     }
   }
 
@@ -424,6 +541,18 @@
 
   function stepRunner(widget) {
     stepIntoRunner(widget);
+  }
+
+  function stepBackRunner(widget) {
+    if (!ensureFreshTrace(widget)) {
+      return;
+    }
+    const state = getRunnerState(widget);
+    const target = state.stepIndex - 1;
+    moveToStep(widget, target);
+    if (target < 0) {
+      hideOutput(widget);
+    }
   }
 
   function stepIntoRunner(widget) {
@@ -516,7 +645,12 @@
 
   function moveToStep(widget, stepIndex) {
     const state = getRunnerState(widget);
-    state.stepIndex = Math.max(0, Math.min(stepIndex, state.trace.length - 1));
+    if (!state.trace.length) {
+      state.stepIndex = -1;
+      renderCurrentStep(widget);
+      return;
+    }
+    state.stepIndex = Math.max(-1, Math.min(stepIndex, state.trace.length - 1));
     renderCurrentStep(widget);
   }
 
@@ -526,30 +660,43 @@
     const currentStep = widget.querySelector("[data-python-diagram-current-step]");
     const runBreakpointButton = widget.querySelector(".python-diagram-runner__run-breakpoint");
     const runButton = widget.querySelector(".python-diagram-runner__run");
+    const stepBackButton = widget.querySelector(".python-diagram-runner__step-back");
     const stepIntoButton = widget.querySelector(".python-diagram-runner__step-into");
     const stepOverButton = widget.querySelector(".python-diagram-runner__step-over");
     const stepOutButton = widget.querySelector(".python-diagram-runner__step-out");
-    const current = state.trace[state.stepIndex];
-    const atEnd = state.trace.length > 0 && state.stepIndex >= state.trace.length - 1;
+    const current = state.stepIndex >= 0 ? state.trace[state.stepIndex] : null;
+    const hasTrace = state.trace.length > 0;
+    const atEnd = hasTrace && state.stepIndex >= state.trace.length - 1;
+    const canAdvance = hasTrace && !atEnd;
 
     if (runBreakpointButton) {
-      runBreakpointButton.disabled = atEnd || !state.breakpoints.size;
+      runBreakpointButton.disabled = !canAdvance || !state.breakpoints.size;
     }
     if (runButton) {
-      runButton.disabled = atEnd;
+      runButton.disabled = !canAdvance;
+    }
+    if (stepBackButton) {
+      stepBackButton.disabled = !hasTrace || state.stepIndex < 0;
     }
     if (stepIntoButton) {
-      stepIntoButton.disabled = atEnd;
+      stepIntoButton.disabled = !canAdvance;
     }
     if (stepOverButton) {
-      stepOverButton.disabled = atEnd;
+      stepOverButton.disabled = !canAdvance;
     }
     if (stepOutButton) {
       stepOutButton.disabled = atEnd || !current || (current.callDepth || 0) <= 0;
     }
+    if (!current) {
+      renderCurrentStepPanel(currentStep, null, 0, state.trace.length);
+      renderDiagram(canvas, emptySnapshot("Ready"));
+      highlightSourceSpan(state.source, null);
+      return;
+    }
     renderCurrentStepPanel(currentStep, current, state.stepIndex + 1, state.trace.length);
-    renderDiagram(canvas, current ? current.snapshot : emptySnapshot("Ready"));
-    highlightSourceSpan(state.source, current ? current.highlight : null);
+    renderDiagram(canvas, current.snapshot);
+    highlightSourceSpan(state.source, current.highlight);
+    positionCurrentStepPopover(widget, currentStep, state.source, current.highlight);
   }
 
   function highlightSourceSpan(source, highlight) {
@@ -562,10 +709,97 @@
     source.selectRange(from, to);
   }
 
+  function clampNumber(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function positionCurrentStepPopover(widget, currentStep, source, highlight) {
+    if (!currentStep || !source) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const anchor = sourceAnchorRect(source, highlight);
+      if (!anchor) {
+        return;
+      }
+
+      const widgetRect = widget.getBoundingClientRect();
+      const editorElement = source.host || source.element;
+      const editorRect = editorElement.getBoundingClientRect();
+      const gap = 16;
+      const margin = 10;
+      const width = currentStep.offsetWidth || 280;
+      const height = currentStep.offsetHeight || 64;
+      const anchorCenter = (anchor.left + anchor.right) / 2;
+      const minLeft = margin;
+      const maxLeft = Math.max(minLeft, widgetRect.width - width - margin);
+      const left = clampNumber(anchorCenter - widgetRect.left - width / 2, minLeft, maxLeft);
+      const canFitAbove = anchor.top - height - gap >= editorRect.top + 4;
+      const placement = canFitAbove ? "above" : "below";
+      let top = placement === "above"
+        ? anchor.top - widgetRect.top - height - gap
+        : anchor.bottom - widgetRect.top + gap;
+      const maxTop = Math.max(margin, widgetRect.height - height - margin);
+      top = clampNumber(top, margin, maxTop);
+      const pointerX = clampNumber(anchorCenter - widgetRect.left - left, 18, width - 18);
+
+      currentStep.dataset.placement = placement;
+      currentStep.style.left = `${left}px`;
+      currentStep.style.top = `${top}px`;
+      currentStep.style.setProperty("--python-diagram-callout-pointer-x", `${pointerX}px`);
+    });
+  }
+
+  function sourceAnchorRect(source, highlight) {
+    const editorElement = source.host || source.element;
+    if (!editorElement) {
+      return null;
+    }
+
+    if (!highlight || !Number.isFinite(highlight.from) || !Number.isFinite(highlight.to)) {
+      const rect = editorElement.getBoundingClientRect();
+      return {
+        bottom: rect.top + 34,
+        left: rect.left + rect.width / 2 - 1,
+        right: rect.left + rect.width / 2 + 1,
+        top: rect.top + 22,
+      };
+    }
+
+    const from = Math.max(0, Math.min(source.value.length, highlight.from));
+    const to = Math.max(from, Math.min(source.value.length, highlight.to));
+    if (source.view) {
+      const start = source.view.coordsAtPos(from, 1);
+      const end = source.view.coordsAtPos(to, -1) || start;
+      if (start && end) {
+        return {
+          bottom: Math.max(start.bottom, end.bottom),
+          left: Math.min(start.left, end.left),
+          right: Math.max(start.right || start.left, end.right || end.left),
+          top: Math.min(start.top, end.top),
+        };
+      }
+    }
+
+    const rect = editorElement.getBoundingClientRect();
+    return {
+      bottom: rect.top + 34,
+      left: rect.left + rect.width / 2 - 1,
+      right: rect.left + rect.width / 2 + 1,
+      top: rect.top + 22,
+    };
+  }
+
   function renderCurrentStepPanel(currentStep, step, stepNumber, stepCount) {
     if (!currentStep) {
       return;
     }
+    if (!step) {
+      hideCurrentStepPanel(currentStep);
+      return;
+    }
+    currentStep.hidden = false;
     currentStep.textContent = "";
     const line = document.createElement("span");
     line.className = "python-diagram-runner__current-step-line";
@@ -577,6 +811,15 @@
     message.className = "python-diagram-runner__current-step-message";
     message.textContent = step && step.message ? step.message : "Ready.";
     currentStep.append(line, message);
+  }
+
+  function hideCurrentStepPanel(currentStep) {
+    currentStep.hidden = true;
+    currentStep.textContent = "";
+    delete currentStep.dataset.placement;
+    currentStep.style.left = "";
+    currentStep.style.top = "";
+    currentStep.style.removeProperty("--python-diagram-callout-pointer-x");
   }
 
   function parseSourceLines(source) {
