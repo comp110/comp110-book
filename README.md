@@ -22,4 +22,4 @@ Build the static site:
 make build
 ```
 
-The preview server is configured for `http://localhost:8000`, and the build output is written to `site/`.
+The preview server is configured for `http://localhost:8000`, and the build output is written to `site/`. `make serve` runs Zensical's live preview behind a small header proxy, so live reload stays enabled while interactive C terminal examples get the cross-origin isolation headers they need.

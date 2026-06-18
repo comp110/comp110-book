@@ -6,11 +6,14 @@ docs_dir = "docs"
 site_dir = "site"
 dev_addr = "0.0.0.0:8000"
 extra_css = ["stylesheets/python-runner.css"]
-extra_javascript = ["javascripts/python-runner.js"]
+extra_javascript = ["javascripts/python-runner.js", "javascripts/python-diagram-runner.js"]
 nav = [
   {"Home" = "index.md"},
   {"Runnable Python Demo" = "python-functions.md"},
+  {"Runnable C Demo" = "c-runner.md"},
+  {"Interactive C Terminal" = "c-terminal-runner.md"},
   {"Python Canvas Demo" = "python-canvas.md"},
+  {"Python Diagram Demo" = "python-diagram.md"},
   {"Pygame Browser Game" = "python-pygame.md"},
   {"About" = "about.md"},
 ]
@@ -50,6 +53,9 @@ pygments_lang_class = true
 custom_fences = [
   { name = "mermaid", class = "mermaid" },
   { name = "python_runner", class = "python-runner", format = "markdown_plugins.pyodide_fence.format_python_runner" },
+  { name = "python_diagram_runner", class = "python-diagram-runner", format = "markdown_plugins.pyodide_fence.format_python_diagram_runner" },
+  { name = "c_runner", class = "c-runner", format = "markdown_plugins.pyodide_fence.format_c_runner" },
+  { name = "c_terminal_runner", class = "c-terminal-runner", format = "markdown_plugins.pyodide_fence.format_c_terminal_runner" },
 ]
 
 [project.markdown_extensions."pymdownx.tabbed"]

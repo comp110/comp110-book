@@ -40,6 +40,8 @@
 }
 
 .python-runner__code,
+.python-runner__stdin,
+.python-runner__terminal,
 .python-runner__output {
   border-radius: 0;
   margin: 0;
@@ -52,6 +54,58 @@
 .python-runner__code[hidden],
 .python-runner__output[hidden] {
   display: none;
+}
+
+.python-runner__stdin-label {
+  background: var(--md-default-bg-color);
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color--light);
+  display: grid;
+  font-size: 0.72rem;
+  font-weight: 700;
+  gap: 0.35rem;
+  letter-spacing: 0;
+  padding: 0.6rem 0.7rem 0.7rem;
+}
+
+.python-runner__stdin {
+  background: var(--md-code-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  color: var(--md-code-fg-color);
+  font: 0.85em/1.5 var(--md-code-font, monospace);
+  min-height: 4.5rem;
+  padding: 0.65rem 0.75rem;
+  resize: vertical;
+  width: 100%;
+}
+
+.python-runner__stdin:focus {
+  border-color: var(--md-accent-fg-color);
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: -2px;
+}
+
+.python-runner__terminal {
+  background: #0b1020;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  color: #e5edf7;
+  min-height: 18rem;
+  overflow: hidden;
+  padding: 0.65rem;
+}
+
+.python-runner__terminal .xterm {
+  height: 100%;
+}
+
+.python-runner__terminal .xterm-viewport,
+.python-runner__terminal .xterm-screen {
+  border-radius: 4px;
+}
+
+.python-runner__terminal:focus-within {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: -2px;
 }
 
 .python-runner__code code {
@@ -154,3 +208,98 @@
   border-color: var(--md-accent-fg-color);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--md-accent-fg-color) 35%, transparent);
 }
+
+.python-diagram-runner__controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.python-diagram-runner__controls button {
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font: 700 0.72rem var(--md-text-font, sans-serif);
+  min-height: 1.7rem;
+  padding: 0.2rem 0.65rem;
+}
+
+.python-diagram-runner__reset,
+.python-diagram-runner__step {
+  background: var(--md-default-bg-color);
+  box-shadow: inset 0 0 0 1px var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color);
+}
+
+.python-diagram-runner__controls button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.python-diagram-runner__source {
+  background: var(--md-code-bg-color);
+  border: 0;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  color: var(--md-code-fg-color);
+  display: block;
+  font: 0.85em/1.5 var(--md-code-font, monospace);
+  min-height: 14rem;
+  padding: 0.85rem 1rem;
+  resize: vertical;
+  tab-size: 4;
+  width: 100%;
+}
+
+.python-diagram-runner__source:focus {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: -2px;
+}
+
+.python-diagram-runner__editor {
+  background: var(--md-code-bg-color);
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.python-diagram-runner__editor .cm-editor,
+.python-diagram-runner__editor .cm-content {
+  min-height: 14rem;
+}
+
+.python-diagram-runner__current-step {
+  background: var(--md-default-bg-color);
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color);
+  display: grid;
+  font-size: 0.78rem;
+  gap: 0.2rem;
+  line-height: 1.4;
+  min-height: 3.35rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.python-diagram-runner__current-step-line {
+  color: var(--md-default-fg-color--light);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.python-diagram-runner__current-step-message {
+  color: var(--md-default-fg-color);
+}
+
+.python-diagram-runner__workspace {
+  background: var(--md-default-bg-color);
+  display: block;
+}
+
+.python-diagram-runner__canvas {
+  aspect-ratio: 27 / 16;
+  background: #f8fafc;
+  border: 0;
+  display: block;
+  height: auto;
+  width: 100%;
+}
+

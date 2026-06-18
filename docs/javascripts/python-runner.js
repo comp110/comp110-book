@@ -1,5 +1,15 @@
 (function () {
   const pyodideUrl = "https://cdn.jsdelivr.net/pyodide/v314.0.0/full/pyodide.js";
+  const runnoWasiUrl = "https://esm.sh/@runno/wasi@0.10.0?bundle";
+  const xtermModuleUrl = "https://esm.sh/@xterm/xterm@5.5.0?bundle";
+  const xtermCssUrl = "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css";
+  const cRunnerBaseUrl = "https://runno.dev/langs";
+  const cSourceFilename = "/program.c";
+  const cObjectFilename = "/program.o";
+  const cWasmFilename = "/program.wasm";
+  const cDisplayFilename = "program.c";
+  const cTerminalInputHeaderBytes = 16;
+  const cTerminalInputCapacity = 64 * 1024;
   const runnerFilename = "/tmp/python-runner.py";
   const displayFilename = "python-runner.py";
   const canvasModuleFilename = "/tmp/browser_canvas.py";
@@ -806,10 +816,14 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
     state: "https://esm.sh/@codemirror/state@6",
     view: "https://esm.sh/@codemirror/view@6",
     python: "https://esm.sh/@codemirror/lang-python@6",
+    cpp: "https://esm.sh/@codemirror/lang-cpp@6",
   };
 
   let pyodidePromise;
   let codeMirrorPromise;
+  let runnoWasiPromise;
+  let xtermPromise;
+  let clangBaseFileSystemPromise;
   let canvasModuleReady = false;
   let canvasModulePromise;
   let pygameModuleReady = false;
@@ -1183,10 +1197,12 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         import(codeMirrorUrls.state),
         import(codeMirrorUrls.view),
         import(codeMirrorUrls.python),
-      ]).then(([highlight, language, state, view, pythonLanguage]) => ({
+        import(codeMirrorUrls.cpp),
+      ]).then(([highlight, language, state, view, pythonLanguage, cppLanguage]) => ({
         ...createDiagnosticTools(view.EditorView, view.Decoration, state.StateEffect, state.StateField),
         EditorView: view.EditorView,
         highlightStyle: createHighlightStyle(language.HighlightStyle, highlight.tags),
+        cpp: cppLanguage.cpp,
         lineNumbers: view.lineNumbers,
         python: pythonLanguage.python,
         syntaxHighlighting: language.syntaxHighlighting,
@@ -1276,7 +1292,7 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         return Decoration.mark({
           attributes: {
             "data-python-runner-diagnostic": severity,
-            title: diagnostic.message || "Python error",
+            title: diagnostic.message || "Runner diagnostic",
           },
           class: `python-runner__diagnostic python-runner__diagnostic--${severity}`,
         }).range(range.from, range.to);
@@ -1417,6 +1433,7 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
       const {
         EditorView,
         diagnosticField,
+        cpp,
         highlightStyle,
         lineNumbers,
         python,
@@ -1427,13 +1444,14 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         return;
       }
 
+      const languageExtension = widget.matches("[data-c-runner], [data-c-terminal-runner]") ? cpp() : python();
       widget.pythonRunnerDiagnosticsEffect = setDiagnosticsEffect;
       widget.pythonRunnerEditor = new EditorView({
         doc: codeElement.textContent,
         parent: editorHost,
         extensions: [
           lineNumbers(),
-          python(),
+          languageExtension,
           syntaxHighlighting(highlightStyle, { fallback: true }),
           diagnosticField,
           EditorView.lineWrapping,
@@ -1925,6 +1943,787 @@ except Exception as __markdown_runner_error:
     };
   }
 
+
+  async function getRunnoWasi() {
+    if (!runnoWasiPromise) {
+      runnoWasiPromise = import(runnoWasiUrl)
+        .then((module) => {
+          if (!module.WASI) {
+            throw new Error("Runno WASI did not export a WASI runtime.");
+          }
+          return module.WASI;
+        })
+        .catch((error) => {
+          runnoWasiPromise = undefined;
+          throw error;
+        });
+    }
+    return runnoWasiPromise;
+  }
+
+  function ensureXTermStyles() {
+    if (document.querySelector(`link[href="${xtermCssUrl}"]`)) {
+      return;
+    }
+
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = xtermCssUrl;
+    link.crossOrigin = "anonymous";
+    link.dataset.cTerminalRunnerXtermCss = "true";
+    document.head.append(link);
+  }
+
+  async function getXTerm() {
+    if (!xtermPromise) {
+      ensureXTermStyles();
+      xtermPromise = import(xtermModuleUrl)
+        .then((module) => {
+          if (!module.Terminal) {
+            throw new Error("XTerm.js did not export a Terminal constructor.");
+          }
+          return module.Terminal;
+        })
+        .catch((error) => {
+          xtermPromise = undefined;
+          throw error;
+        });
+    }
+    return xtermPromise;
+  }
+
+  async function gunzipBytes(bytes) {
+    if (typeof DecompressionStream === "undefined") {
+      throw new Error("This browser does not support the built-in gzip decompressor needed by c_runner.");
+    }
+
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  function tarString(bytes, offset, length) {
+    let end = offset;
+    const limit = offset + length;
+    while (end < limit && bytes[end] !== 0) {
+      end += 1;
+    }
+    return new TextDecoder().decode(bytes.subarray(offset, end)).trim();
+  }
+
+  function tarOctal(bytes, offset, length) {
+    const text = tarString(bytes, offset, length).replace(/\0.*$/, "").trim();
+    return text ? Number.parseInt(text, 8) : 0;
+  }
+
+  function normalizeTarPath(name) {
+    const clean = name.replace(/^\.\//, "").replace(/^\/+/, "");
+    return clean ? `/${clean}` : "";
+  }
+
+  function extractTarFileSystem(bytes) {
+    const fileSystem = {};
+    const decoder = new TextDecoder();
+
+    for (let offset = 0; offset + 512 <= bytes.length;) {
+      const header = bytes.subarray(offset, offset + 512);
+      if (header.every((value) => value === 0)) {
+        break;
+      }
+
+      const name = tarString(header, 0, 100);
+      const size = tarOctal(header, 124, 12);
+      const mtime = tarOctal(header, 136, 12);
+      const type = decoder.decode(header.subarray(156, 157));
+      const prefix = tarString(header, 345, 155);
+      const fullName = prefix ? `${prefix}/${name}` : name;
+      const path = normalizeTarPath(fullName);
+      const contentStart = offset + 512;
+      const contentEnd = contentStart + size;
+
+      if (path && (type === "" || type === "0")) {
+        const timestamp = mtime ? new Date(mtime * 1000) : new Date();
+        fileSystem[path] = {
+          path,
+          content: bytes.slice(contentStart, contentEnd),
+          mode: "binary",
+          timestamps: {
+            access: timestamp,
+            change: timestamp,
+            modification: timestamp,
+          },
+        };
+      }
+
+      offset = contentStart + Math.ceil(size / 512) * 512;
+    }
+
+    return fileSystem;
+  }
+
+  async function fetchTarGzFileSystem(url) {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+    }
+    const compressed = new Uint8Array(await response.arrayBuffer());
+    return extractTarFileSystem(await gunzipBytes(compressed));
+  }
+
+  async function getClangBaseFileSystem() {
+    if (!clangBaseFileSystemPromise) {
+      clangBaseFileSystemPromise = fetchTarGzFileSystem(`${cRunnerBaseUrl}/clang-fs.tar.gz`)
+        .catch((error) => {
+          clangBaseFileSystemPromise = undefined;
+          throw error;
+        });
+    }
+    return clangBaseFileSystemPromise;
+  }
+
+  function cloneWasiFile(file) {
+    const timestamps = file.timestamps || {};
+    let content = file.content;
+    if (file.mode === "binary") {
+      content = content instanceof Uint8Array ? new Uint8Array(content) : new Uint8Array(content || []);
+    }
+
+    return {
+      ...file,
+      content,
+      timestamps: {
+        access: timestamps.access ? new Date(timestamps.access) : new Date(),
+        change: timestamps.change ? new Date(timestamps.change) : new Date(),
+        modification: timestamps.modification ? new Date(timestamps.modification) : new Date(),
+      },
+    };
+  }
+
+  function cloneWasiFileSystem(fileSystem) {
+    return Object.fromEntries(
+      Object.entries(fileSystem).map(([path, file]) => [path, cloneWasiFile(file)]),
+    );
+  }
+
+  function createWasiTextFile(path, content) {
+    const timestamp = new Date();
+    return {
+      path,
+      content,
+      mode: "string",
+      timestamps: {
+        access: timestamp,
+        change: timestamp,
+        modification: timestamp,
+      },
+    };
+  }
+
+  function createStdinReader(stdin) {
+    const bytes = new TextEncoder().encode(stdin || "");
+    const decoder = new TextDecoder();
+    let offset = 0;
+
+    return (byteLength) => {
+      if (offset >= bytes.length) {
+        return null;
+      }
+      const end = Math.min(bytes.length, offset + Math.max(1, byteLength));
+      const chunk = decoder.decode(bytes.subarray(offset, end));
+      offset = end;
+      return chunk;
+    };
+  }
+
+  function binaryResponseFromFile(file) {
+    if (!file) {
+      throw new Error(`${cWasmFilename} was not produced by the C linker.`);
+    }
+    const bytes = file.mode === "binary"
+      ? file.content
+      : new TextEncoder().encode(String(file.content || ""));
+    return new Response(bytes, {
+      headers: {
+        "Content-Type": "application/wasm",
+      },
+    });
+  }
+
+  async function runWasiCommand(WASI, command, fileSystem, stdin) {
+    const stdout = [];
+    const stderr = [];
+    const binary = command.binaryURL
+      ? fetch(command.binaryURL)
+      : Promise.resolve(binaryResponseFromFile(fileSystem[command.fsPath]));
+    const result = await WASI.start(binary, {
+      args: [command.binaryName, ...(command.args || [])],
+      env: command.env || {},
+      fs: fileSystem,
+      stdin: createStdinReader(stdin),
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+    });
+
+    return {
+      exitCode: Number(result.exitCode || 0),
+      fs: result.fs,
+      stderr: stderr.join(""),
+      stdout: stdout.join(""),
+    };
+  }
+
+  function stripAnsi(text) {
+    return String(text || "").replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+  }
+
+  function cleanCOutput(text) {
+    return stripAnsi(text)
+      .split(cSourceFilename).join(cDisplayFilename)
+      .replace(/^\s+|\s+$/g, "");
+  }
+
+  function parseCCompilerDiagnostics(text) {
+    const diagnostics = [];
+    const pattern = /(?:^|\n)(?:\/)?program\.c:(\d+):(\d+):\s*(error|warning|note):\s*([^\n]+)/g;
+    const cleaned = cleanCOutput(text);
+    let match;
+
+    while ((match = pattern.exec(cleaned)) !== null) {
+      const severity = match[3] === "note" ? "info" : match[3];
+      diagnostics.push({
+        line: Number(match[1]),
+        column: Number(match[2]),
+        message: `clang: ${match[4]}`,
+        severity,
+        source: "clang",
+      });
+    }
+
+    return diagnostics;
+  }
+
+  function getCStdin(widget) {
+    const stdin = widget.querySelector("[data-c-runner-stdin]");
+    return stdin ? stdin.value : "";
+  }
+
+  function cCompileCommand() {
+    return {
+      binaryURL: `${cRunnerBaseUrl}/clang.wasm`,
+      binaryName: "clang",
+      args: [
+        "-cc1",
+        "-Werror",
+        "-triple",
+        "wasm32-unkown-wasi",
+        "-isysroot",
+        "/sys",
+        "-internal-isystem",
+        "/sys/include",
+        "-internal-isystem",
+        "/sys/lib/clang/8.0.1/include",
+        "-ferror-limit",
+        "4",
+        "-fmessage-length",
+        "80",
+        "-fno-color-diagnostics",
+        "-O2",
+        "-emit-obj",
+        "-o",
+        cObjectFilename,
+        cSourceFilename,
+      ],
+    };
+  }
+
+  function cLinkCommand() {
+    return {
+      binaryURL: `${cRunnerBaseUrl}/wasm-ld.wasm`,
+      binaryName: "wasm-ld",
+      args: [
+        "--no-threads",
+        "--export-dynamic",
+        "-z",
+        "stack-size=1048576",
+        "-L/sys/lib/wasm32-wasi",
+        "/sys/lib/wasm32-wasi/crt1.o",
+        cObjectFilename,
+        "-lc",
+        "-o",
+        cWasmFilename,
+      ],
+    };
+  }
+
+  function cProgramCommand() {
+    return {
+      fsPath: cWasmFilename,
+      binaryName: "program",
+    };
+  }
+
+  function cFailureResult(commandResult, fallbackOutput, diagnostics) {
+    return {
+      diagnostics: diagnostics || [],
+      failed: true,
+      output: cleanCOutput([
+        commandResult.stdout,
+        commandResult.stderr,
+      ].filter(Boolean).join("\n")) || fallbackOutput,
+    };
+  }
+
+  function wasiFileBytes(file) {
+    if (!file) {
+      throw new Error(`${cWasmFilename} was not produced by the C linker.`);
+    }
+    if (file.mode === "binary") {
+      return file.content instanceof Uint8Array
+        ? new Uint8Array(file.content)
+        : new Uint8Array(file.content || []);
+    }
+    return new TextEncoder().encode(String(file.content || ""));
+  }
+
+  async function compileC(code) {
+    const WASI = await getRunnoWasi();
+    const baseFileSystem = cloneWasiFileSystem(await getClangBaseFileSystem());
+    let fileSystem = {
+      ...baseFileSystem,
+      [cSourceFilename]: createWasiTextFile(cSourceFilename, code),
+    };
+
+    const compileResult = await runWasiCommand(WASI, cCompileCommand(), fileSystem, "");
+    fileSystem = compileResult.fs;
+    if (compileResult.exitCode !== 0) {
+      const compilerOutput = [compileResult.stdout, compileResult.stderr].filter(Boolean).join("\n");
+      return cFailureResult(
+        compileResult,
+        `C compilation failed with exit code ${compileResult.exitCode}.`,
+        parseCCompilerDiagnostics(compilerOutput),
+      );
+    }
+
+    const linkResult = await runWasiCommand(WASI, cLinkCommand(), fileSystem, "");
+    fileSystem = linkResult.fs;
+    if (linkResult.exitCode !== 0) {
+      return cFailureResult(
+        linkResult,
+        `C linking failed with exit code ${linkResult.exitCode}.`,
+        [],
+      );
+    }
+
+    return {
+      diagnostics: [],
+      failed: false,
+      fileSystem,
+      output: "",
+      wasmBytes: wasiFileBytes(fileSystem[cWasmFilename]),
+    };
+  }
+
+  async function executeC(code, stdin) {
+    const WASI = await getRunnoWasi();
+    const compileResult = await compileC(code);
+    if (compileResult.failed) {
+      return compileResult;
+    }
+
+    const executionResult = await runWasiCommand(
+      WASI,
+      cProgramCommand(),
+      compileResult.fileSystem,
+      stdin,
+    );
+    const outputParts = [executionResult.stdout, executionResult.stderr].filter(Boolean);
+    if (executionResult.exitCode !== 0) {
+      outputParts.push(`Process exited with code ${executionResult.exitCode}.`);
+    }
+
+    return {
+      diagnostics: [],
+      failed: executionResult.exitCode !== 0,
+      output: cleanCOutput(outputParts.join("\n")),
+    };
+  }
+
+  async function runC(widget) {
+    const button = widget.querySelector(".python-runner__run");
+    const output = widget.querySelector(".python-runner__output");
+    const code = getSource(widget);
+
+    button.disabled = true;
+    setEditorDiagnostics(widget, []);
+    outputText(output, "Loading C compiler...", false);
+
+    try {
+      outputText(output, "Compiling C...", false);
+      const result = await executeC(code, getCStdin(widget));
+      setEditorDiagnostics(widget, result.diagnostics);
+      outputText(output, result.output, result.failed);
+    } catch (error) {
+      outputText(output, error && error.stack ? error.stack : String(error), true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function hasSharedTerminalSupport() {
+    return typeof SharedArrayBuffer !== "undefined" && window.crossOriginIsolated;
+  }
+
+  function cTerminalIsolationMessage() {
+    return [
+      "Interactive C stdin requires SharedArrayBuffer.",
+      "Serve this page with Cross-Origin-Opener-Policy: same-origin and",
+      "Cross-Origin-Embedder-Policy: credentialless or require-corp.",
+    ].join("\n");
+  }
+
+  async function ensureCTerminal(widget) {
+    if (widget.cTerminalRunnerTerminal) {
+      return widget.cTerminalRunnerTerminal;
+    }
+
+    const host = widget.querySelector("[data-c-terminal-runner-terminal]");
+    if (!host) {
+      throw new Error("No terminal host was rendered for this c_terminal_runner.");
+    }
+
+    const Terminal = await getXTerm();
+    const terminal = new Terminal({
+      allowProposedApi: false,
+      cols: 80,
+      convertEol: true,
+      cursorBlink: true,
+      fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+      fontSize: 14,
+      rows: 18,
+      scrollback: 1000,
+      theme: {
+        background: "#0b1020",
+        cursor: "#f8fafc",
+        foreground: "#e5edf7",
+        selectionBackground: "#334155",
+      },
+    });
+
+    host.textContent = "";
+    terminal.open(host);
+    terminal.onData((data) => handleCTerminalData(widget, data));
+    host.addEventListener("pointerdown", () => window.setTimeout(() => terminal.focus(), 0));
+
+    widget.cTerminalRunnerTerminal = terminal;
+    widget.cTerminalRunnerTranscript = "";
+    widget.cTerminalRunnerInputBuffer = "";
+    return terminal;
+  }
+
+  function normalizeTerminalText(text) {
+    return String(text || "").replace(/\r\n|\r|\n/g, "\r\n");
+  }
+
+  function writeCTerminal(widget, text, options = {}) {
+    const value = String(text || "");
+    widget.cTerminalRunnerTranscript = `${widget.cTerminalRunnerTranscript || ""}${stripAnsi(value)}`;
+    const terminal = widget.cTerminalRunnerTerminal;
+    if (!terminal) {
+      return;
+    }
+
+    const normalized = normalizeTerminalText(value);
+    if (options.stderr) {
+      terminal.write(`\x1b[31m${normalized}\x1b[0m`);
+    } else if (options.dim) {
+      terminal.write(`\x1b[2m${normalized}\x1b[0m`);
+    } else {
+      terminal.write(normalized);
+    }
+  }
+
+  function createTerminalInputBuffer() {
+    const sharedBuffer = new SharedArrayBuffer(cTerminalInputHeaderBytes + cTerminalInputCapacity);
+    return {
+      bytes: new Uint8Array(sharedBuffer, cTerminalInputHeaderBytes),
+      control: new Int32Array(sharedBuffer, 0, 4),
+      sharedBuffer,
+    };
+  }
+
+  function notifyTerminalInput(input) {
+    Atomics.add(input.control, 3, 1);
+    Atomics.notify(input.control, 3);
+  }
+
+  function writeTerminalInput(widget, text) {
+    const input = widget.cTerminalRunnerInput;
+    if (!input) {
+      return;
+    }
+
+    const encoded = new TextEncoder().encode(text);
+    const { bytes, control } = input;
+    const capacity = bytes.length;
+    let writeIndex = Atomics.load(control, 0);
+    let readIndex = Atomics.load(control, 1);
+    let dropped = false;
+
+    for (const byte of encoded) {
+      const nextWriteIndex = (writeIndex + 1) % capacity;
+      if (nextWriteIndex === readIndex) {
+        dropped = true;
+        break;
+      }
+      bytes[writeIndex] = byte;
+      writeIndex = nextWriteIndex;
+      Atomics.store(control, 0, writeIndex);
+      readIndex = Atomics.load(control, 1);
+    }
+
+    notifyTerminalInput(input);
+    if (dropped) {
+      writeCTerminal(widget, "\n[input buffer full]\n", { stderr: true });
+    }
+  }
+
+  function closeTerminalInput(input) {
+    if (!input) {
+      return;
+    }
+    Atomics.store(input.control, 2, 1);
+    notifyTerminalInput(input);
+  }
+
+  function handleCTerminalData(widget, data) {
+    if (!widget.cTerminalRunnerInput) {
+      return;
+    }
+    if (data.startsWith("\x1b")) {
+      return;
+    }
+
+    let line = widget.cTerminalRunnerInputBuffer || "";
+    for (const char of data) {
+      if (char === "\u0003") {
+        stopCTerminalRun(widget, "^C");
+        line = "";
+        continue;
+      }
+
+      if (char === "\r" || char === "\n") {
+        writeCTerminal(widget, "\n");
+        writeTerminalInput(widget, `${line}\n`);
+        line = "";
+        continue;
+      }
+
+      if (char === "\u007f") {
+        if (line.length > 0) {
+          line = line.slice(0, -1);
+          widget.cTerminalRunnerTerminal.write("\b \b");
+        }
+        continue;
+      }
+
+      if (char === "\t" || char >= " ") {
+        line += char;
+        writeCTerminal(widget, char);
+      }
+    }
+    widget.cTerminalRunnerInputBuffer = line;
+  }
+
+  function resetCTerminalRunState(widget) {
+    closeTerminalInput(widget.cTerminalRunnerInput);
+    if (widget.cTerminalRunnerWorker) {
+      widget.cTerminalRunnerWorker.terminate();
+    }
+    widget.cTerminalRunnerInput = null;
+    widget.cTerminalRunnerInputBuffer = "";
+    widget.cTerminalRunnerWorker = null;
+
+    const button = widget.querySelector(".python-runner__run");
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Run";
+    }
+  }
+
+  function stopCTerminalRun(widget, message) {
+    const worker = widget.cTerminalRunnerWorker;
+    closeTerminalInput(widget.cTerminalRunnerInput);
+    if (worker) {
+      worker.terminate();
+    }
+    resetCTerminalRunState(widget);
+    if (message) {
+      writeCTerminal(widget, `${message}\n`, { dim: true });
+    }
+  }
+
+  function createCTerminalWorker() {
+    const source = `
+const textDecoder = new TextDecoder();
+
+function createBlockingStdinReader(sharedBuffer) {
+  const control = new Int32Array(sharedBuffer, 0, 4);
+  const bytes = new Uint8Array(sharedBuffer, ${cTerminalInputHeaderBytes});
+  const capacity = bytes.length;
+
+  return (byteLength) => {
+    const requested = Math.max(1, Number(byteLength) || 1);
+    const output = [];
+
+    while (output.length === 0) {
+      let readIndex = Atomics.load(control, 1);
+      const writeIndex = Atomics.load(control, 0);
+
+      while (readIndex !== writeIndex && output.length < requested) {
+        output.push(bytes[readIndex]);
+        readIndex = (readIndex + 1) % capacity;
+      }
+
+      if (output.length > 0) {
+        Atomics.store(control, 1, readIndex);
+        break;
+      }
+
+      if (Atomics.load(control, 2) === 1) {
+        return null;
+      }
+
+      const version = Atomics.load(control, 3);
+      Atomics.wait(control, 3, version);
+    }
+
+    return textDecoder.decode(new Uint8Array(output));
+  };
+}
+
+self.onmessage = async (event) => {
+  if (!event.data || event.data.type !== "run") {
+    return;
+  }
+
+  try {
+    const module = await import(event.data.runnoWasiUrl);
+    if (!module.WASI) {
+      throw new Error("Runno WASI did not export a WASI runtime.");
+    }
+
+    const wasmBytes = event.data.wasmBytes instanceof Uint8Array
+      ? event.data.wasmBytes
+      : new Uint8Array(event.data.wasmBytes);
+    const response = Promise.resolve(new Response(wasmBytes, {
+      headers: { "Content-Type": "application/wasm" },
+    }));
+
+    const result = await module.WASI.start(response, {
+      args: ["program"],
+      env: {},
+      fs: {},
+      stdin: createBlockingStdinReader(event.data.sharedBuffer),
+      stdout: (text) => self.postMessage({ type: "stdout", text }),
+      stderr: (text) => self.postMessage({ type: "stderr", text }),
+    });
+
+    self.postMessage({ type: "exit", exitCode: Number(result.exitCode || 0) });
+  } catch (error) {
+    self.postMessage({
+      type: "error",
+      message: error && error.stack ? error.stack : String(error),
+    });
+  }
+};
+`;
+
+    const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    const worker = new Worker(url, { type: "module" });
+    URL.revokeObjectURL(url);
+    return worker;
+  }
+
+  function finishCTerminalRun(widget, exitCode) {
+    resetCTerminalRunState(widget);
+    writeCTerminal(widget, `\nProcess exited with code ${exitCode}.\n`, {
+      stderr: exitCode !== 0,
+    });
+  }
+
+  async function runCTerminal(widget) {
+    const button = widget.querySelector(".python-runner__run");
+    const output = widget.querySelector(".python-runner__output");
+    const code = getSource(widget);
+
+    stopCTerminalRun(widget);
+    setEditorDiagnostics(widget, []);
+
+    if (!hasSharedTerminalSupport()) {
+      outputText(output, cTerminalIsolationMessage(), true);
+      return;
+    }
+
+    button.disabled = true;
+    output.hidden = true;
+    output.classList.remove("is-error");
+
+    try {
+      const terminal = await ensureCTerminal(widget);
+      terminal.reset();
+      widget.cTerminalRunnerTranscript = "";
+      writeCTerminal(widget, "Compiling C...\n", { dim: true });
+
+      const compileResult = await compileC(code);
+      setEditorDiagnostics(widget, compileResult.diagnostics || []);
+      if (compileResult.failed) {
+        outputText(output, compileResult.output, true);
+        writeCTerminal(widget, `${compileResult.output}\n`, { stderr: true });
+        resetCTerminalRunState(widget);
+        return;
+      }
+
+      const input = createTerminalInputBuffer();
+      const worker = createCTerminalWorker();
+      widget.cTerminalRunnerInput = input;
+      widget.cTerminalRunnerWorker = worker;
+      widget.cTerminalRunnerInputBuffer = "";
+
+      worker.onmessage = (event) => {
+        const message = event.data || {};
+        if (message.type === "stdout") {
+          writeCTerminal(widget, message.text);
+        } else if (message.type === "stderr") {
+          writeCTerminal(widget, message.text, { stderr: true });
+        } else if (message.type === "exit") {
+          finishCTerminalRun(widget, Number(message.exitCode || 0));
+        } else if (message.type === "error") {
+          outputText(output, message.message || "C terminal worker failed.", true);
+          writeCTerminal(widget, `\n${message.message || "C terminal worker failed."}\n`, { stderr: true });
+          resetCTerminalRunState(widget);
+        }
+      };
+      worker.onerror = (event) => {
+        const message = event.message || "C terminal worker failed.";
+        outputText(output, message, true);
+        writeCTerminal(widget, `\n${message}\n`, { stderr: true });
+        resetCTerminalRunState(widget);
+      };
+
+      button.disabled = false;
+      button.textContent = "Restart";
+      terminal.focus();
+      worker.postMessage({
+        type: "run",
+        runnoWasiUrl,
+        sharedBuffer: input.sharedBuffer,
+        wasmBytes: compileResult.wasmBytes,
+      });
+    } catch (error) {
+      outputText(output, error && error.stack ? error.stack : String(error), true);
+      resetCTerminalRunState(widget);
+    }
+  }
+
   function setRunnerPreloadState(widgets, state) {
     widgets.forEach((widget) => {
       if (widget.isConnected) {
@@ -2055,6 +2854,28 @@ except Exception as __markdown_runner_error:
         .addEventListener("click", () => runPython(widget));
     });
     queueRunnerPreload(widgets);
+
+    const cWidgets = Array.from(
+      root.querySelectorAll("[data-c-runner]:not([data-c-runner-ready])"),
+    );
+
+    cWidgets.forEach((widget) => {
+      widget.setAttribute("data-c-runner-ready", "true");
+      installEditor(widget);
+      widget.querySelector(".python-runner__run")
+        .addEventListener("click", () => runC(widget));
+    });
+
+    const cTerminalWidgets = Array.from(
+      root.querySelectorAll("[data-c-terminal-runner]:not([data-c-terminal-runner-ready])"),
+    );
+
+    cTerminalWidgets.forEach((widget) => {
+      widget.setAttribute("data-c-terminal-runner-ready", "true");
+      installEditor(widget);
+      widget.querySelector(".python-runner__run")
+        .addEventListener("click", () => runCTerminal(widget));
+    });
   }
 
   document.addEventListener("DOMContentLoaded", () => initialize(document));
