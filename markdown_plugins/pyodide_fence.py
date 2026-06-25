@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from html import escape
+import re
 from typing import Any
 
 
@@ -25,6 +26,17 @@ def _diagram_icon_button(classes: str, label: str, icon: str) -> str:
     )
 
 
+def _diagram_play_button() -> str:
+    return (
+        '<button class="python-diagram-runner__play" type="button" '
+        'title="Play at 1.0x" aria-label="Play at 1.0x" '
+        'aria-pressed="false" data-python-diagram-play-mode="play">'
+        f'{DEBUG_ICONS["play"]}'
+        '<span class="python-diagram-runner__play-speed">1.0x</span>'
+        '</button>'
+    )
+
+
 DEBUG_ICONS = {
     "reset": _debug_icon(
         '<path d="M4 12a8 8 0 1 0 2.35-5.65"></path>'
@@ -34,6 +46,9 @@ DEBUG_ICONS = {
         '<polygon points="6.7 5.5 14.2 12 6.7 18.5 6.7 5.5" fill="currentColor" stroke="none"></polygon>'
         '<circle class="python-diagram-runner__icon-breakpoint-ring" cx="18" cy="12" r="3.35"></circle>'
         '<circle class="python-diagram-runner__icon-breakpoint-dot" cx="18" cy="12" r="2.45"></circle>'
+    ),
+    "play": _debug_icon(
+        '<polygon points="7.5 5.5 17 12 7.5 18.5 7.5 5.5" fill="currentColor" stroke="none"></polygon>'
     ),
     "step_back": _debug_icon(
         '<path d="M6 5v14"></path>'
@@ -75,6 +90,7 @@ def _format_runner(
     code_language: str,
     data_attribute: str,
     default_title: str,
+    extra_attributes: str = "",
     stdin: str | None = None,
     terminal: bool = False,
     title: object | None = None,
@@ -108,8 +124,10 @@ def _format_runner(
             'aria-label="Interactive C terminal"></div>'
         )
 
+    attributes = f"{data_attribute}{extra_attributes}"
+
     return (
-        f'<div class="{classes}" {data_attribute}>'
+        f'<div class="{classes}" {attributes}>'
         '<div class="python-runner__toolbar">'
         f'<span class="python-runner__title">{escaped_title}</span>'
         '<button class="python-runner__run" type="button">Run</button>'
@@ -121,6 +139,68 @@ def _format_runner(
         '<pre class="python-runner__output" aria-live="polite" hidden></pre>'
         "</div>"
     )
+
+
+def _boolean_option(value: object, *, default: bool) -> bool:
+    if value is None:
+        return default
+
+    normalized = str(value).strip().casefold()
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    return default
+
+
+def _highlight_lines(attrs: dict[str, Any]) -> str:
+    value = next(
+        (
+            attrs[name]
+            for name in (
+                "highlight",
+                "highlights",
+                "line_highlight",
+                "line_highlights",
+                "line-highlight",
+                "line-highlights",
+                "highlight_lines",
+                "hl_lines",
+            )
+            if name in attrs
+        ),
+        None,
+    )
+    if value is None:
+        return ""
+
+    lines: list[str] = []
+    seen: set[int] = set()
+    for part in re.split(r"[\s,]+", str(value).strip()):
+        if not part:
+            continue
+        try:
+            line = int(part)
+        except ValueError:
+            continue
+        if line > 0 and line not in seen:
+            seen.add(line)
+            lines.append(str(line))
+    return ",".join(lines)
+
+
+def _python_runner_attributes(attrs: dict[str, Any]) -> str:
+    attributes = []
+    if not _boolean_option(attrs.get("editable"), default=True):
+        attributes.append('data-python-runner-editable="false"')
+
+    highlight_lines = _highlight_lines(attrs)
+    if highlight_lines:
+        attributes.append(
+            f'data-python-runner-highlight-lines="{escape(highlight_lines, quote=True)}"'
+        )
+
+    return f" {' '.join(attributes)}" if attributes else ""
 
 
 def format_python_runner(
@@ -139,6 +219,7 @@ def format_python_runner(
         code_language="python",
         data_attribute="data-python-runner",
         default_title="Runnable Python",
+        extra_attributes=_python_runner_attributes(attrs),
         title=attrs.get("title"),
     )
 
@@ -171,6 +252,7 @@ def format_python_diagram_runner(
         f'{_diagram_icon_button("python-diagram-runner__step python-diagram-runner__step-into", "Step Into", DEBUG_ICONS["step_into"])}'
         f'{_diagram_icon_button("python-diagram-runner__step-over", "Step Over", DEBUG_ICONS["step_over"])}'
         f'{_diagram_icon_button("python-diagram-runner__step-out", "Step Out", DEBUG_ICONS["step_out"])}'
+        f'{_diagram_play_button()}'
         f'{_diagram_icon_button("python-diagram-runner__run", "Run to End", DEBUG_ICONS["run"])}'
         f'{_diagram_icon_button("python-diagram-runner__fullscreen", "Full Screen", DEBUG_ICONS["fullscreen"])}'
         "</div>"

@@ -91,6 +91,86 @@ def test_python_runner_examples_are_editable_and_run() -> None:
             expect_runner_preload_ready(page)
             expect(page.locator(".python-runner__output").first).to_be_hidden()
 
+            first_runner = page.locator("[data-python-runner]").nth(0)
+            readonly_runner = page.locator("[data-python-runner]").nth(2)
+            expect(first_runner).to_have_attribute("data-python-runner-highlight-lines", "1,5")
+            expect(first_runner.locator(".python-runner__title")).to_have_text("Tax Calculator")
+            expect(readonly_runner).to_have_attribute("data-python-runner-editable", "false")
+            expect(readonly_runner).to_have_attribute("data-python-runner-highlight-lines", "1,5")
+            expect(first_runner.locator(".python-runner__line-highlight")).to_have_count(2)
+            expect(readonly_runner.locator(".python-runner__line-highlight")).to_have_count(2)
+            expect(readonly_runner.locator(".cm-content")).to_have_attribute("contenteditable", "false")
+
+            highlight_styles = page.evaluate(
+                """
+                () => {
+                  const line = document.querySelector(".python-runner__line-highlight");
+                  const originalRootScheme = document.documentElement.getAttribute("data-md-color-scheme");
+                  const originalBodyScheme = document.body.getAttribute("data-md-color-scheme");
+
+                  const styleFor = (scheme) => {
+                    document.documentElement.setAttribute("data-md-color-scheme", scheme);
+                    document.body.setAttribute("data-md-color-scheme", scheme);
+                    const style = getComputedStyle(line);
+                    return {
+                      background: style.backgroundColor,
+                      shadow: style.boxShadow,
+                    };
+                  };
+
+                  const light = styleFor("default");
+                  const dark = styleFor("slate");
+
+                  if (originalRootScheme === null) {
+                    document.documentElement.removeAttribute("data-md-color-scheme");
+                  } else {
+                    document.documentElement.setAttribute("data-md-color-scheme", originalRootScheme);
+                  }
+
+                  if (originalBodyScheme === null) {
+                    document.body.removeAttribute("data-md-color-scheme");
+                  } else {
+                    document.body.setAttribute("data-md-color-scheme", originalBodyScheme);
+                  }
+
+                  return {
+                    darkBackground: dark.background,
+                    darkShadow: dark.shadow,
+                    lightBackground: light.background,
+                    lightShadow: light.shadow,
+                  };
+                }
+                """
+            )
+            assert "rgba(0, 0, 0, 0)" not in highlight_styles["lightBackground"]
+            assert "rgba(0, 0, 0, 0)" not in highlight_styles["darkBackground"]
+            assert highlight_styles["lightBackground"] != highlight_styles["darkBackground"]
+            assert highlight_styles["lightShadow"] != "none"
+            assert highlight_styles["darkShadow"] != "none"
+
+            readonly_source = page.evaluate(
+                """
+                document
+                  .querySelectorAll("[data-python-runner]")[2]
+                  .pythonRunnerEditor
+                  .state
+                  .doc
+                  .toString()
+                """
+            )
+            readonly_text = page.evaluate(
+                """
+                () => {
+                  const widget = document.querySelectorAll("[data-python-runner]")[2];
+                  widget.querySelector(".cm-content").focus();
+                  document.execCommand("insertText", false, 'print("readonly edit attempt")');
+                  return widget.pythonRunnerEditor.state.doc.toString();
+                }
+                """
+            )
+            assert readonly_text == readonly_source
+            expect(readonly_runner.locator(".python-runner__line-highlight")).to_have_count(2)
+
             page.locator(".cm-editor").first.click()
             page.keyboard.press("Control+A")
             page.keyboard.type('print("edited in codemirror")')
@@ -106,6 +186,7 @@ def test_python_runner_examples_are_editable_and_run() -> None:
                 """
             )
             assert editor_text == 'print("edited in codemirror")'
+            expect(first_runner.locator(".python-runner__line-highlight")).to_have_count(0)
 
             page.locator(".python-runner__run").first.click()
             output = page.locator(".python-runner__output").first
@@ -359,8 +440,9 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             assert page.locator(".python-diagram-runner__step-into").count() == 1
             assert page.locator(".python-diagram-runner__step-over").count() == 1
             assert page.locator(".python-diagram-runner__step-out").count() == 1
+            assert page.locator(".python-diagram-runner__play").count() == 1
             assert page.locator(".python-diagram-runner__fullscreen").count() == 1
-            assert page.locator(".python-diagram-runner__controls button svg").count() == 8
+            assert page.locator(".python-diagram-runner__controls button svg").count() == 9
             assert page.evaluate(
                 """
                 () => Array.from(
@@ -379,6 +461,7 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                 {"label": "Step Into", "pressed": None, "title": "Step Into", "text": ""},
                 {"label": "Step Over", "pressed": None, "title": "Step Over", "text": ""},
                 {"label": "Step Out", "pressed": None, "title": "Step Out", "text": ""},
+                {"label": "Play at 1.0x", "pressed": "false", "title": "Play at 1.0x", "text": "1.0x"},
                 {"label": "Run to End", "pressed": None, "title": "Run to End", "text": ""},
                 {"label": "Full Screen", "pressed": "false", "title": "Full Screen", "text": ""},
             ]
@@ -520,6 +603,68 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                     """
                 )
 
+            play_button = page.locator(".python-diagram-runner__play")
+            expect(play_button).to_be_enabled()
+            expect(play_button).to_contain_text("1.0x")
+            play_button_metrics = page.evaluate(
+                """
+                () => {
+                  const button = document.querySelector(".python-diagram-runner__play");
+                  const icon = button.querySelector(".python-diagram-runner__control-icon");
+                  const speed = button.querySelector(".python-diagram-runner__play-speed");
+                  return {
+                    buttonWidth: button.getBoundingClientRect().width,
+                    iconWidth: icon.getBoundingClientRect().width,
+                    speedWidth: speed.getBoundingClientRect().width,
+                  };
+                }
+                """,
+            )
+            assert play_button_metrics["buttonWidth"] >= 80
+            assert play_button_metrics["iconWidth"] >= 20
+            assert play_button_metrics["speedWidth"] >= 28
+            play_button.click()
+            expect(play_button).to_have_attribute("aria-pressed", "true")
+            expect(play_button).to_have_attribute("aria-label", "Set playback speed to 1.5x")
+            expect(play_button).to_contain_text("1.5x")
+            active_play_styles = page.evaluate(
+                """
+                () => {
+                  const style = getComputedStyle(document.querySelector(".python-diagram-runner__play"));
+                  return { background: style.backgroundColor, color: style.color };
+                }
+                """,
+            )
+            assert active_play_styles == {
+                "background": "rgb(21, 128, 61)",
+                "color": "rgb(255, 255, 255)",
+            }
+            expect(current_step).to_be_hidden()
+            assert page.evaluate(
+                """
+                () => document
+                  .querySelector("[data-python-diagram-runner]")
+                  .pythonDiagramRunner.stepIndex
+                """,
+            ) == 0
+            assert selected_source() == ""
+
+            play_button.click()
+            expect(play_button).to_have_attribute("aria-label", "Set playback speed to 2.0x")
+            expect(play_button).to_contain_text("2.0x")
+            play_button.click()
+            expect(play_button).to_have_attribute("aria-label", "Pause playback")
+            expect(play_button).to_have_attribute("data-python-diagram-play-mode", "pause")
+            expect(play_button).not_to_contain_text("2.0x")
+            play_button.click()
+            expect(play_button).to_have_attribute("aria-pressed", "false")
+            expect(play_button).to_have_attribute("aria-label", "Play at 1.0x")
+            expect(play_button).to_contain_text("1.0x")
+            expect(current_step).to_be_visible()
+
+            page.locator(".python-diagram-runner__reset").click()
+            expect(current_step).to_be_hidden()
+
             page.locator(".python-diagram-runner__step").click()
             expect(current_step).to_be_visible()
             expect(current_step).to_contain_text(
@@ -604,6 +749,35 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             assert "If condition evaluated to True (truthy)." in trace_text
             assert "Return statement: stored RV 14" in trace_text
             assert "Printed Output: 23" in trace_text
+
+            updated_binding = page.evaluate(
+                """
+                () => {
+                  const trace = document
+                    .querySelector("[data-python-diagram-runner]")
+                    .pythonDiagramRunner.trace;
+                  for (const step of trace) {
+                    for (const frame of step.snapshot.frames) {
+                      const binding = frame.bindings.find((item) => (
+                        item.name === "current"
+                        && item.previousValue === "3"
+                        && item.value === "2"
+                      ));
+                      if (binding) {
+                        return binding;
+                      }
+                    }
+                  }
+                  return null;
+                }
+                """
+            )
+            assert updated_binding == {
+                "declaredType": "int",
+                "name": "current",
+                "previousValue": "3",
+                "value": "2",
+            }
 
             diagram_height = page.evaluate(
                 """

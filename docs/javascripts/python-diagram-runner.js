@@ -2,6 +2,13 @@
   const canvasWidth = 1080;
   const canvasBaseHeight = 640;
   const maxTraceSteps = 280;
+  const bindingRowHeight = 30;
+  const frameMetaRowHeight = 26;
+  const playbackSpeeds = [1, 1.5, 2];
+  const playbackIcons = {
+    pause: '<path d="M8 5v14"></path><path d="M16 5v14"></path>',
+    play: '<polygon points="7.5 5.5 17 12 7.5 18.5 7.5 5.5" fill="currentColor" stroke="none"></polygon>',
+  };
   const identifierPattern = /^[A-Za-z_]\w*$/;
   const supportedTypes = new Set(["int", "float", "str", "bool"]);
   const codeMirrorUrls = {
@@ -45,10 +52,11 @@
     const stepIntoButton = widget.querySelector(".python-diagram-runner__step-into");
     const stepOverButton = widget.querySelector(".python-diagram-runner__step-over");
     const stepOutButton = widget.querySelector(".python-diagram-runner__step-out");
+    const playButton = widget.querySelector(".python-diagram-runner__play");
     const runButton = widget.querySelector(".python-diagram-runner__run");
     const fullscreenButton = widget.querySelector(".python-diagram-runner__fullscreen");
 
-    if (!codeBlock || !codeElement || !canvas || !currentStep || !resetButton || !runBreakpointButton || !stepBackButton || !stepIntoButton || !stepOverButton || !stepOutButton || !runButton || !fullscreenButton) {
+    if (!codeBlock || !codeElement || !canvas || !currentStep || !resetButton || !runBreakpointButton || !stepBackButton || !stepIntoButton || !stepOverButton || !stepOutButton || !playButton || !runButton || !fullscreenButton) {
       return;
     }
 
@@ -58,6 +66,7 @@
 
     const handleSourceChange = () => {
       const state = widget.pythonDiagramRunner;
+      stopPlayback(widget, { render: false });
       state.dirty = true;
       state.trace = [];
       state.stepIndex = -1;
@@ -73,6 +82,8 @@
       fallbackFullscreen: false,
       handleSourceChange,
       lastSource: "",
+      playbackSpeedIndex: -1,
+      playbackTimerId: null,
       source,
       stepIndex: -1,
       trace: [],
@@ -93,13 +104,35 @@
       }
     });
 
-    resetButton.addEventListener("click", () => resetRunner(widget));
-    runBreakpointButton.addEventListener("click", () => runToBreakpoint(widget));
-    stepBackButton.addEventListener("click", () => stepBackRunner(widget));
-    stepIntoButton.addEventListener("click", () => stepIntoRunner(widget));
-    stepOverButton.addEventListener("click", () => stepOverRunner(widget));
-    stepOutButton.addEventListener("click", () => stepOutRunner(widget));
-    runButton.addEventListener("click", () => runToEnd(widget));
+    resetButton.addEventListener("click", () => {
+      stopPlayback(widget, { render: false });
+      resetRunner(widget);
+    });
+    runBreakpointButton.addEventListener("click", () => {
+      stopPlayback(widget, { render: false });
+      runToBreakpoint(widget);
+    });
+    stepBackButton.addEventListener("click", () => {
+      stopPlayback(widget, { render: false });
+      stepBackRunner(widget);
+    });
+    stepIntoButton.addEventListener("click", () => {
+      stopPlayback(widget, { render: false });
+      stepIntoRunner(widget);
+    });
+    stepOverButton.addEventListener("click", () => {
+      stopPlayback(widget, { render: false });
+      stepOverRunner(widget);
+    });
+    stepOutButton.addEventListener("click", () => {
+      stopPlayback(widget, { render: false });
+      stepOutRunner(widget);
+    });
+    playButton.addEventListener("click", () => togglePlayback(widget));
+    runButton.addEventListener("click", () => {
+      stopPlayback(widget, { render: false });
+      runToEnd(widget);
+    });
     fullscreenButton.addEventListener("click", () => toggleFullscreen(widget));
     updateFullscreenButton(widget, false);
 
@@ -376,6 +409,156 @@
 
   function getRunnerState(widget) {
     return widget.pythonDiagramRunner;
+  }
+
+  function isPlaybackRunning(state) {
+    return Boolean(state && state.playbackTimerId !== null);
+  }
+
+  function formatPlaybackSpeed(speed) {
+    return `${speed.toFixed(1)}x`;
+  }
+
+  function updatePlaybackButton(widget) {
+    const state = getRunnerState(widget);
+    const playButton = widget.querySelector(".python-diagram-runner__play");
+    if (!state || !playButton) {
+      return;
+    }
+
+    const playing = isPlaybackRunning(state);
+    const nextSpeed = playing
+      ? playbackSpeeds[state.playbackSpeedIndex + 1]
+      : playbackSpeeds[0];
+
+    playButton.setAttribute("aria-pressed", playing ? "true" : "false");
+    if (nextSpeed) {
+      setPlaybackButtonIcon(playButton, "play");
+      setPlaybackButtonSpeed(playButton, formatPlaybackSpeed(nextSpeed));
+      const label = playing
+        ? `Set playback speed to ${formatPlaybackSpeed(nextSpeed)}`
+        : `Play at ${formatPlaybackSpeed(nextSpeed)}`;
+      playButton.setAttribute("aria-label", label);
+      playButton.setAttribute("title", label);
+      return;
+    }
+
+    setPlaybackButtonIcon(playButton, "pause");
+    setPlaybackButtonSpeed(playButton, "");
+    playButton.setAttribute("aria-label", "Pause playback");
+    playButton.setAttribute("title", "Pause playback");
+  }
+
+  function setPlaybackButtonIcon(playButton, mode) {
+    if (playButton.dataset.pythonDiagramPlayMode === mode) {
+      return;
+    }
+    const icon = playButton.querySelector(".python-diagram-runner__control-icon");
+    if (icon && playbackIcons[mode]) {
+      icon.innerHTML = playbackIcons[mode];
+    }
+    playButton.dataset.pythonDiagramPlayMode = mode;
+  }
+
+  function setPlaybackButtonSpeed(playButton, text) {
+    const speedLabel = playButton.querySelector(".python-diagram-runner__play-speed");
+    if (!speedLabel) {
+      return;
+    }
+    speedLabel.textContent = text;
+    speedLabel.hidden = !text;
+  }
+
+  function togglePlayback(widget) {
+    const state = getRunnerState(widget);
+    if (!isPlaybackRunning(state)) {
+      startPlayback(widget);
+      return;
+    }
+
+    if (state.playbackSpeedIndex < playbackSpeeds.length - 1) {
+      state.playbackSpeedIndex += 1;
+      schedulePlaybackTimer(widget);
+      updatePlaybackButton(widget);
+      return;
+    }
+
+    stopPlayback(widget);
+  }
+
+  function startPlayback(widget) {
+    if (!ensureFreshTrace(widget)) {
+      return;
+    }
+    const state = getRunnerState(widget);
+    if (state.stepIndex >= state.trace.length - 1) {
+      return;
+    }
+
+    hideOutput(widget);
+    state.playbackSpeedIndex = 0;
+    schedulePlaybackTimer(widget);
+    advancePlayback(widget);
+    updatePlaybackButton(widget);
+  }
+
+  function schedulePlaybackTimer(widget) {
+    const state = getRunnerState(widget);
+    if (state.playbackTimerId !== null) {
+      window.clearInterval(state.playbackTimerId);
+    }
+    const speed = playbackSpeeds[state.playbackSpeedIndex] || playbackSpeeds[0];
+    state.playbackTimerId = window.setInterval(() => advancePlayback(widget), 1000 / speed);
+  }
+
+  function advancePlayback(widget) {
+    const state = getRunnerState(widget);
+    if (!state || !state.trace.length) {
+      stopPlayback(widget);
+      return;
+    }
+    if (state.stepIndex >= state.trace.length - 1) {
+      finishPlayback(widget);
+      return;
+    }
+
+    moveToStep(widget, state.stepIndex + 1);
+    const current = state.trace[state.stepIndex];
+    if (current && current.failed) {
+      stopPlayback(widget);
+      outputText(widget, current.message, true);
+      return;
+    }
+    if (state.stepIndex >= state.trace.length - 1) {
+      finishPlayback(widget);
+    }
+  }
+
+  function finishPlayback(widget) {
+    const state = getRunnerState(widget);
+    const current = state && state.trace[state.stepIndex];
+    stopPlayback(widget);
+    outputText(
+      widget,
+      current && current.failed ? current.message : "Finished diagram trace.",
+      Boolean(current && current.failed),
+    );
+  }
+
+  function stopPlayback(widget, options = {}) {
+    const state = getRunnerState(widget);
+    if (!state) {
+      return;
+    }
+    if (state.playbackTimerId !== null) {
+      window.clearInterval(state.playbackTimerId);
+    }
+    state.playbackTimerId = null;
+    state.playbackSpeedIndex = -1;
+    updatePlaybackButton(widget);
+    if (options.render !== false) {
+      renderCurrentStep(widget);
+    }
   }
 
   function isDiagramFullscreen(widget) {
@@ -659,6 +842,7 @@
     const canvas = widget.querySelector("[data-python-diagram-canvas]");
     const currentStep = widget.querySelector("[data-python-diagram-current-step]");
     const runBreakpointButton = widget.querySelector(".python-diagram-runner__run-breakpoint");
+    const playButton = widget.querySelector(".python-diagram-runner__play");
     const runButton = widget.querySelector(".python-diagram-runner__run");
     const stepBackButton = widget.querySelector(".python-diagram-runner__step-back");
     const stepIntoButton = widget.querySelector(".python-diagram-runner__step-into");
@@ -668,9 +852,13 @@
     const hasTrace = state.trace.length > 0;
     const atEnd = hasTrace && state.stepIndex >= state.trace.length - 1;
     const canAdvance = hasTrace && !atEnd;
+    const playbackRunning = isPlaybackRunning(state);
 
     if (runBreakpointButton) {
       runBreakpointButton.disabled = !canAdvance || !state.breakpoints.size;
+    }
+    if (playButton) {
+      playButton.disabled = !hasTrace || (atEnd && !playbackRunning);
     }
     if (runButton) {
       runButton.disabled = !canAdvance;
@@ -687,15 +875,20 @@
     if (stepOutButton) {
       stepOutButton.disabled = atEnd || !current || (current.callDepth || 0) <= 0;
     }
+    updatePlaybackButton(widget);
     if (!current) {
       renderCurrentStepPanel(currentStep, null, 0, state.trace.length);
       renderDiagram(canvas, emptySnapshot("Ready"));
       highlightSourceSpan(state.source, null);
       return;
     }
-    renderCurrentStepPanel(currentStep, current, state.stepIndex + 1, state.trace.length);
     renderDiagram(canvas, current.snapshot);
     highlightSourceSpan(state.source, current.highlight);
+    if (playbackRunning) {
+      hideCurrentStepPanel(currentStep);
+      return;
+    }
+    renderCurrentStepPanel(currentStep, current, state.stepIndex + 1, state.trace.length);
     positionCurrentStepPopover(widget, currentStep, state.source, current.highlight);
   }
 
@@ -1579,11 +1772,14 @@
   function setBinding(frame, name, value, declaredType) {
     const binding = frame.bindings.find((item) => item.name === name);
     if (binding) {
+      const previousDisplay = formatValue(binding.value);
+      const nextDisplay = formatValue(value);
+      binding.previousValue = previousDisplay !== nextDisplay ? binding.value : null;
       binding.value = value;
       binding.declaredType = declaredType || binding.declaredType;
       return;
     }
-    frame.bindings.push({ declaredType, name, value });
+    frame.bindings.push({ declaredType, name, previousValue: null, value });
   }
 
   function findBinding(frame, name) {
@@ -2046,6 +2242,7 @@
         bindings: frame.bindings.map((binding) => ({
           declaredType: binding.declaredType,
           name: binding.name,
+          previousValue: binding.previousValue ? formatValue(binding.previousValue) : null,
           value: formatValue(binding.value),
         })),
         id: frame.id,
@@ -2110,7 +2307,7 @@
   function frameHeightFor(frame) {
     const bindingRows = Math.max(1, frame.bindings.length);
     const metaRows = (frame.returnAddress ? 1 : 0) + (frame.returnValue ? 1 : 0);
-    return Math.max(88, 48 + bindingRows * 25 + metaRows * 23);
+    return Math.max(96, 52 + bindingRows * bindingRowHeight + metaRows * frameMetaRowHeight);
   }
 
   function renderDiagram(canvas, snapshot) {
@@ -2157,7 +2354,7 @@
     context.lineWidth = 1.5;
     context.stroke();
     context.fillStyle = "#0f172a";
-    context.font = "700 16px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    context.font = "700 17px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
     context.textBaseline = "middle";
     const line = snapshot.line ? `Line ${snapshot.line}: ` : "";
     context.fillText(`${line}${snapshot.message || "Ready"}`, 42, 41, 996);
@@ -2181,7 +2378,7 @@
     context.lineTo(column.x + column.width, column.y + 42);
     context.stroke();
     context.fillStyle = "#111827";
-    context.font = "700 16px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    context.font = "700 17px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
     context.textBaseline = "middle";
     context.fillText(column.title, column.x + 16, column.y + 22, column.width - 32);
     context.restore();
@@ -2206,7 +2403,7 @@
     context.stroke();
 
     context.fillStyle = frame.active ? "#0e7490" : "#334155";
-    context.font = "700 15px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    context.font = "700 16px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
     context.fillText(frame.name, x + 14, y + 24, width - 28);
 
     const dividerX = frame.name === "Globals" ? x + 14 : x + 128;
@@ -2225,28 +2422,52 @@
     const nameX = frame.name === "Globals" ? x + 16 : dividerX + 14;
     frame.bindings.forEach((binding) => {
       context.fillStyle = "#0f172a";
-      context.font = "600 13px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+      context.font = "600 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
       const label = binding.declaredType ? `${binding.name}: ${binding.declaredType}` : binding.name;
       context.fillText(label, nameX, rowY, valueX - nameX - 12);
-      context.fillStyle = "#1d4ed8";
-      context.fillText(binding.value, valueX, rowY, x + width - valueX - 14);
-      rowY += 25;
+      drawBindingValue(context, binding, valueX, rowY, x + width - valueX - 14);
+      rowY += bindingRowHeight;
     });
     if (!frame.bindings.length) {
       context.fillStyle = "#64748b";
-      context.font = "13px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+      context.font = "14px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
       context.fillText("empty", nameX, rowY, width - 28);
     }
     context.restore();
   }
 
+  function drawBindingValue(context, binding, x, y, width) {
+    const currentValue = String(binding.value);
+    const previousValue = binding.previousValue ? String(binding.previousValue) : "";
+    context.font = "600 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+    if (!previousValue || previousValue === currentValue) {
+      context.fillStyle = "#1d4ed8";
+      context.fillText(currentValue, x, y, width);
+      return;
+    }
+
+    const gap = 9;
+    const previousWidth = Math.min(context.measureText(previousValue).width, Math.max(0, width * 0.46));
+    context.fillStyle = "#64748b";
+    context.fillText(previousValue, x, y, previousWidth);
+    context.strokeStyle = "#64748b";
+    context.lineWidth = 1.5;
+    context.beginPath();
+    context.moveTo(x, y - 5);
+    context.lineTo(x + previousWidth, y - 5);
+    context.stroke();
+
+    context.fillStyle = "#1d4ed8";
+    context.fillText(currentValue, x + previousWidth + gap, y, Math.max(0, width - previousWidth - gap));
+  }
+
   function drawFrameMeta(context, x, y, width, frame) {
     context.save();
-    context.font = "600 13px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+    context.font = "600 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
     context.fillStyle = "#475569";
     if (frame.returnAddress) {
       context.fillText(`RA: ${frame.returnAddress}`, x, y, width);
-      y += 23;
+      y += frameMetaRowHeight;
     }
     if (frame.returnValue) {
       context.fillStyle = "#047857";
@@ -2270,10 +2491,10 @@
       context.fill();
       context.stroke();
       context.fillStyle = "#14532d";
-      context.font = "700 14px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+      context.font = "700 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
       context.fillText(`ID:${item.id}`, column.x + 28, y + 25, column.width - 56);
       context.fillStyle = "#166534";
-      context.font = "13px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+      context.font = "14px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
       context.fillText(`${item.name} - ${item.label}`, column.x + 28, y + 49, column.width - 56);
       context.restore();
       y += 86;
@@ -2286,7 +2507,7 @@
   function drawPrintedOutput(context, column, output) {
     let y = column.y + 66;
     context.save();
-    context.font = "15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+    context.font = "16px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
     context.fillStyle = "#0f172a";
     output.forEach((line) => {
       context.fillText(String(line), column.x + 18, y, column.width - 36);
@@ -2301,7 +2522,7 @@
   function drawEmptyColumnText(context, column, text) {
     context.save();
     context.fillStyle = "#64748b";
-    context.font = "13px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    context.font = "14px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
     context.fillText(text, column.x + 18, column.y + 72, column.width - 36);
     context.restore();
   }
@@ -2309,7 +2530,7 @@
   function drawOverflow(context, column, y, text) {
     context.save();
     context.fillStyle = "#b45309";
-    context.font = "13px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    context.font = "14px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
     context.fillText(text, column.x + 18, y + 20, column.width - 36);
     context.restore();
   }

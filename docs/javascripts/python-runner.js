@@ -1200,7 +1200,14 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         import(codeMirrorUrls.cpp),
       ]).then(([highlight, language, state, view, pythonLanguage, cppLanguage]) => ({
         ...createDiagnosticTools(view.EditorView, view.Decoration, state.StateEffect, state.StateField),
+        EditorState: state.EditorState,
         EditorView: view.EditorView,
+        createLineHighlightField: (highlightLines) => createLineHighlightField(
+          view.EditorView,
+          view.Decoration,
+          state.StateField,
+          highlightLines,
+        ),
         highlightStyle: createHighlightStyle(language.HighlightStyle, highlight.tags),
         cpp: cppLanguage.cpp,
         lineNumbers: view.lineNumbers,
@@ -1302,6 +1309,43 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
     return Decoration.set(ranges, true);
   }
 
+  function createLineHighlightField(EditorView, Decoration, StateField, highlightLines) {
+    const lines = Array.from(new Set(highlightLines)).filter((line) => line > 0);
+    if (!lines.length) {
+      return [];
+    }
+
+    return StateField.define({
+      create(state) {
+        return buildLineHighlightDecorations(Decoration, state.doc, lines);
+      },
+      update(decorations, transaction) {
+        if (transaction.docChanged) {
+          return Decoration.none;
+        }
+        return decorations.map(transaction.changes);
+      },
+      provide(field) {
+        return EditorView.decorations.from(field);
+      },
+    });
+  }
+
+  function buildLineHighlightDecorations(Decoration, doc, highlightLines) {
+    const ranges = highlightLines
+      .map((lineNumber) => {
+        if (lineNumber > doc.lines) {
+          return undefined;
+        }
+        return Decoration.line({
+          class: "python-runner__line-highlight",
+        }).range(doc.line(lineNumber).from);
+      })
+      .filter(Boolean);
+
+    return Decoration.set(ranges, true);
+  }
+
   function diagnosticRange(doc, diagnostic) {
     if (!doc.length || !diagnostic.line) {
       return undefined;
@@ -1343,6 +1387,30 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
       return min;
     }
     return Math.max(min, Math.min(max, integer));
+  }
+
+  function runnerIsEditable(widget) {
+    return widget.getAttribute("data-python-runner-editable") !== "false";
+  }
+
+  function parseLineHighlights(value) {
+    if (!value) {
+      return [];
+    }
+
+    const lines = [];
+    const seen = new Set();
+    String(value)
+      .split(/[\s,]+/)
+      .forEach((part) => {
+        const line = Number.parseInt(part, 10);
+        if (Number.isNaN(line) || line <= 0 || seen.has(line)) {
+          return;
+        }
+        seen.add(line);
+        lines.push(line);
+      });
+    return lines;
   }
 
   function outputText(output, text, isError) {
@@ -1431,7 +1499,9 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
 
     try {
       const {
+        EditorState,
         EditorView,
+        createLineHighlightField,
         diagnosticField,
         cpp,
         highlightStyle,
@@ -1445,43 +1515,51 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
       }
 
       const languageExtension = widget.matches("[data-c-runner], [data-c-terminal-runner]") ? cpp() : python();
+      const isEditable = runnerIsEditable(widget);
+      const extensions = [
+        lineNumbers(),
+        languageExtension,
+        syntaxHighlighting(highlightStyle, { fallback: true }),
+        diagnosticField,
+        createLineHighlightField(parseLineHighlights(widget.dataset.pythonRunnerHighlightLines)),
+        EditorView.lineWrapping,
+        EditorView.editable.of(isEditable),
+        EditorView.theme({
+          "&": {
+            backgroundColor: "var(--md-code-bg-color)",
+            color: "var(--md-code-fg-color)",
+          },
+          ".cm-content": {
+            caretColor: "var(--md-default-fg-color)",
+            padding: "0.85rem 0",
+          },
+          ".cm-gutters": {
+            backgroundColor: "var(--md-code-bg-color)",
+            borderRightColor: "var(--md-default-fg-color--lightest)",
+            color: "var(--md-default-fg-color--light)",
+          },
+          ".cm-line": {
+            padding: "0 1rem 0 0.7rem",
+          },
+          ".cm-scroller": {
+            fontFamily: "var(--md-code-font, monospace)",
+            lineHeight: "1.5",
+          },
+          "&.cm-focused": {
+            outline: "2px solid var(--md-accent-fg-color)",
+            outlineOffset: "-2px",
+          },
+        }),
+      ];
+      if (!isEditable) {
+        extensions.push(EditorState.readOnly.of(true));
+      }
+
       widget.pythonRunnerDiagnosticsEffect = setDiagnosticsEffect;
       widget.pythonRunnerEditor = new EditorView({
         doc: codeElement.textContent,
         parent: editorHost,
-        extensions: [
-          lineNumbers(),
-          languageExtension,
-          syntaxHighlighting(highlightStyle, { fallback: true }),
-          diagnosticField,
-          EditorView.lineWrapping,
-          EditorView.theme({
-            "&": {
-              backgroundColor: "var(--md-code-bg-color)",
-              color: "var(--md-code-fg-color)",
-            },
-            ".cm-content": {
-              caretColor: "var(--md-default-fg-color)",
-              padding: "0.85rem 0",
-            },
-            ".cm-gutters": {
-              backgroundColor: "var(--md-code-bg-color)",
-              borderRightColor: "var(--md-default-fg-color--lightest)",
-              color: "var(--md-default-fg-color--light)",
-            },
-            ".cm-line": {
-              padding: "0 1rem 0 0.7rem",
-            },
-            ".cm-scroller": {
-              fontFamily: "var(--md-code-font, monospace)",
-              lineHeight: "1.5",
-            },
-            "&.cm-focused": {
-              outline: "2px solid var(--md-accent-fg-color)",
-              outlineOffset: "-2px",
-            },
-          }),
-        ],
+        extensions,
       });
       if (widget.pythonRunnerDiagnostics) {
         setEditorDiagnostics(widget, widget.pythonRunnerDiagnostics);
