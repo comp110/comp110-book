@@ -175,35 +175,126 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
 
             first_runner = page.locator("[data-python-runner]").nth(0)
             readonly_runner = page.locator("[data-python-runner]").nth(2)
-            expect(first_runner).to_have_attribute("data-runner-highlight-lines", "5")
+            assert first_runner.get_attribute("data-runner-highlight-lines") is None
             expect(first_runner.locator(".python-runner__title")).to_have_text("Tax Calculator")
             expect(readonly_runner).to_have_attribute("data-runner-editable", "false")
             expect(readonly_runner).to_have_attribute("data-runner-highlight-lines", "1,5")
-            expect(first_runner.locator(".python-runner__line-highlight")).to_have_count(2)
+            expect(first_runner.locator(".python-runner__line-highlight")).to_have_count(0)
             expect(readonly_runner.locator(".python-runner__line-highlight")).to_have_count(2)
             expect(readonly_runner.locator(".cm-content")).to_have_attribute("contenteditable", "false")
+            first_editor_source = page.evaluate(
+                """
+                document
+                  .querySelector("[data-python-runner]")
+                  .pythonRunnerEditor
+                  .state
+                  .doc
+                  .toString()
+                """
+            )
+            assert "# (1)" not in first_editor_source
+            assert first_editor_source.startswith("def add_tax(price: float, tax_rate: float) -> float:\n")
 
             expect(first_runner.locator(".python-runner__annotation-gutter")).to_have_count(1)
             expect(page.locator("[data-python-runner]").nth(1).locator(".python-runner__annotation-gutter")).to_have_count(0)
             annotation_marker = first_runner.locator(".python-runner__annotation-marker")
-            expect(annotation_marker).to_have_count(1)
-            expect(annotation_marker).to_have_attribute("data-python-runner-annotations", "1")
-            expect(annotation_marker).to_have_text("1")
+            expect(annotation_marker).to_have_count(2)
+            expect(annotation_marker).to_have_text(["1", "2"])
+            first_annotation_marker = annotation_marker.first
+            expect(first_annotation_marker).to_have_attribute("data-python-runner-annotations", "1")
+            expect(first_annotation_marker).to_have_text("1")
+            annotation_heading = page.locator("[data-python-runner] + .python-runner__annotation-heading")
+            expect(annotation_heading).to_be_visible()
+            expect(annotation_heading).to_have_text("Annotations")
+            expect(annotation_heading.locator(".python-runner__annotation-icon")).to_have_count(1)
             assert page.evaluate(
                 """
+                () => document
+                  .querySelector(".python-runner__annotation-heading")
+                  .tagName === "DIV"
+                """
+            )
+            annotation_list = page.locator(".python-runner__annotation-heading + .python-runner__annotation-list")
+            expect(annotation_list).to_be_visible()
+            expect(annotation_list).to_have_attribute("data-python-runner-annotations", "")
+            expect(annotation_list.locator("li")).to_have_text([
+                "Notice the type of price and tax_rate parameters are float.",
+                "The corresponding arguments that add_tax is called with provide values to pass to the function call evaluation.",
+            ])
+            list_styles = page.evaluate(
+                """
                 () => {
-                  const list = document.querySelector("[data-python-runner]").nextElementSibling;
-                  return Boolean(list && list.matches("ol[hidden][data-python-runner-annotations]"));
+                  const runner = document.querySelector("[data-python-runner]");
+                  const heading = document.querySelector(".python-runner__annotation-heading");
+                  const list = document.querySelector(".python-runner__annotation-list");
+                  const item = list.querySelector("li");
+                  const gutters = runner.querySelector(".cm-gutters");
+                  const bodyStyle = getComputedStyle(document.querySelector(".md-typeset"));
+                  const headingStyle = getComputedStyle(heading);
+                  const listStyle = getComputedStyle(list);
+                  const itemStyle = getComputedStyle(item);
+                  const headingRect = heading.getBoundingClientRect();
+                  const itemRect = item.getBoundingClientRect();
+                  const listRect = list.getBoundingClientRect();
+                  return {
+                    background: listStyle.backgroundColor,
+                    bodyFontSize: bodyStyle.fontSize,
+                    borderLeftWidth: listStyle.borderLeftWidth,
+                    gutterWidth: gutters.getBoundingClientRect().width,
+                    headingFontSize: headingStyle.fontSize,
+                    headingLeft: headingRect.left,
+                    headingMarginLeft: Number.parseFloat(headingStyle.marginLeft),
+                    itemBackground: itemStyle.backgroundColor,
+                    itemLeft: itemRect.left,
+                    itemMarginLeft: itemStyle.marginLeft,
+                    listFontSize: listStyle.fontSize,
+                    listLeft: listRect.left,
+                    listMarginLeft: Number.parseFloat(listStyle.marginLeft),
+                    listPaddingLeft: listStyle.paddingLeft,
+                    listStylePosition: listStyle.listStylePosition,
+                    listStyleType: listStyle.listStyleType,
+                  };
                 }
                 """
             )
+            assert list_styles["background"] == "rgba(0, 0, 0, 0)"
+            assert list_styles["borderLeftWidth"] == "0px"
+            assert abs(list_styles["headingMarginLeft"] - list_styles["gutterWidth"]) < 1
+            assert abs(list_styles["listMarginLeft"] - list_styles["gutterWidth"]) < 1
+            assert abs(list_styles["listLeft"] - list_styles["headingLeft"]) < 1
+            assert abs(list_styles["itemLeft"] - list_styles["headingLeft"]) < 1
+            assert list_styles["headingFontSize"] == list_styles["bodyFontSize"]
+            assert list_styles["listFontSize"] == list_styles["bodyFontSize"]
+            assert list_styles["itemMarginLeft"] == "0px"
+            assert list_styles["listPaddingLeft"] == "0px"
+            assert list_styles["listStylePosition"] == "inside"
+            assert list_styles["listStyleType"] == "decimal"
+            assert list_styles["itemBackground"] == "rgba(0, 0, 0, 0)"
+            assert not page.locator(".md-nav a", has_text="Annotations").count()
+            assert not page.evaluate(
+                """
+                () => document
+                  .querySelector("[data-python-runner] .cm-line")
+                  .classList
+                  .contains("python-runner__annotation-note-highlight")
+                """
+            )
+            annotation_list.locator("li").hover()
             assert page.evaluate(
                 """
-                () => {
-                  const line = document.querySelector("[data-python-runner] .cm-line");
-                  return line.classList.contains("python-runner__line-highlight")
-                    && line.classList.contains("python-runner__annotation-line-highlight");
-                }
+                () => document
+                  .querySelector("[data-python-runner] .cm-line")
+                  .classList
+                  .contains("python-runner__annotation-note-highlight")
+                """
+            )
+            page.locator(".python-runner__title").first.hover()
+            assert not page.evaluate(
+                """
+                () => document
+                  .querySelector("[data-python-runner] .cm-line")
+                  .classList
+                  .contains("python-runner__annotation-note-highlight")
                 """
             )
             marker_styles = page.evaluate(
@@ -227,11 +318,11 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
             assert marker_styles["borderWidth"] == "0px"
             assert abs(marker_styles["markerCenterY"] - marker_styles["numberCenterY"]) < 1
 
-            annotation_marker.hover()
+            first_annotation_marker.hover()
             popover = page.locator(".python-runner__annotation-popover")
             expect(popover).to_be_visible()
             expect(popover).to_have_attribute("data-placement", "above")
-            expect(popover).to_contain_text("Notice the type of price is a float.")
+            expect(popover).to_contain_text("Notice the type of price and tax_rate parameters are float.")
             expect(popover.locator(".python-runner__annotation-number")).to_have_text("1")
             annotation_number_background = page.evaluate(
                 """
@@ -270,7 +361,7 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
                 }
                 """
             )
-            annotation_marker.hover()
+            first_annotation_marker.hover()
             expect(popover).to_have_attribute("data-placement", "below")
             below_position = page.evaluate(
                 """
@@ -291,6 +382,8 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
             )
             assert below_position["placement"] == "below"
             assert below_position["popoverTop"] >= below_position["markerBottom"]
+
+            page.locator(".python-runner__title").first.hover()
 
             highlight_styles = page.evaluate(
                 """
@@ -380,6 +473,7 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
             expect(first_runner.locator(".python-runner__line-highlight")).to_have_count(0)
             expect(first_runner.locator(".python-runner__annotation-marker")).to_have_count(0)
             expect(page.locator(".python-runner__annotation-popover")).to_have_count(0)
+            expect(annotation_list).to_be_visible()
 
             page.locator(".python-runner__run").first.click()
             output = page.locator(".python-runner__output").first
@@ -1073,7 +1167,7 @@ def test_c_runner_examples_compile_run_and_report_errors() -> None:
             expect(first_c_runner.locator(".python-runner__title")).to_have_text("Squares")
             expect(first_c_runner).to_have_attribute("data-runner-editable", "false")
             expect(first_c_runner).to_have_attribute("data-runner-highlight-lines", "4,5")
-            expect(first_c_runner.locator(".python-runner__line-highlight")).to_have_count(3)
+            expect(first_c_runner.locator(".python-runner__line-highlight")).to_have_count(2)
             expect(first_c_runner.locator(".python-runner__annotation-marker")).to_have_text("1")
             expect(first_c_runner.locator(".cm-content")).to_have_attribute("contenteditable", "false")
             first_c_source = page.evaluate(

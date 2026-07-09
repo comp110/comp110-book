@@ -137,6 +137,7 @@
 }
 
 .python-runner .cm-line.python-runner__line-highlight,
+.python-runner .cm-line.python-runner__annotation-note-highlight,
 .python-runner__code .python-runner__line-highlight {
   background-color: rgba(255, 214, 10, 0.28);
   box-shadow:
@@ -146,6 +147,7 @@
 }
 
 [data-md-color-scheme="slate"] .python-runner .cm-line.python-runner__line-highlight,
+[data-md-color-scheme="slate"] .python-runner .cm-line.python-runner__annotation-note-highlight,
 [data-md-color-scheme="slate"] .python-runner__code .python-runner__line-highlight {
   background-color: rgba(255, 224, 102, 0.22);
   box-shadow:
@@ -262,6 +264,78 @@
 
 .python-runner__annotation-body > :last-child {
   margin-bottom: 0;
+}
+
+.md-typeset .python-runner__annotation-heading {
+  align-items: center;
+  color: var(--md-default-fg-color);
+  display: flex;
+  font-family: var(--md-text-font, sans-serif);
+  font-size: inherit;
+  font-weight: 700;
+  gap: 0.45rem;
+  line-height: 1.4;
+  margin: 0.45rem 0 0.15rem var(--python-runner-annotation-offset, 0);
+}
+
+.python-runner__annotation-heading-icon {
+  align-items: center;
+  background: rgba(255, 214, 10, 0.24);
+  border-radius: 999px;
+  color: #7a4f00;
+  display: inline-flex;
+  height: 1.45rem;
+  justify-content: center;
+  width: 1.45rem;
+}
+
+.python-runner__annotation-heading-icon .python-runner__annotation-icon {
+  height: 1rem;
+  width: 1rem;
+}
+
+[dir="ltr"] .md-typeset .python-runner__annotation-list {
+  margin: 0 0 1.2rem var(--python-runner-annotation-offset, 0);
+}
+
+[dir="rtl"] .md-typeset .python-runner__annotation-list {
+  margin: 0 var(--python-runner-annotation-offset, 0) 1.2rem 0;
+}
+
+.md-typeset .python-runner__annotation-list {
+  color: var(--md-default-fg-color);
+  font-family: var(--md-text-font, sans-serif);
+  font-size: inherit;
+  line-height: 1.45;
+  list-style-position: inside;
+  padding: 0;
+}
+
+[dir="ltr"] .md-typeset .python-runner__annotation-list li,
+[dir="rtl"] .md-typeset .python-runner__annotation-list li {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.md-typeset .python-runner__annotation-list li {
+  border-radius: 4px;
+  padding: 0.2rem 0.35rem;
+}
+
+.md-typeset .python-runner__annotation-list li:hover,
+.md-typeset .python-runner__annotation-list li:focus-visible {
+  background: rgba(255, 214, 10, 0.22);
+  outline: 0;
+}
+
+[data-md-color-scheme="slate"] .python-runner__annotation-heading-icon {
+  background: rgba(255, 224, 102, 0.22);
+  color: #ffe066;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .python-runner__annotation-list li:hover,
+[data-md-color-scheme="slate"] .md-typeset .python-runner__annotation-list li:focus-visible {
+  background: rgba(255, 224, 102, 0.18);
 }
 
 [data-md-color-scheme="slate"] .python-runner__annotation-marker {

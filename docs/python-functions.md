@@ -10,18 +10,19 @@ In Python, a function definition starts with `def`, names the parameters in pare
 
 Static type annotations are labels for people and tools. They say what kind of value a parameter should receive and what kind of value the function should return.
 
-```python { runnable=true title="Tax Calculator" highlight="5" }
+```python { runnable=true title="Tax Calculator" }
 def add_tax(price: float, tax_rate: float) -> float: # (1)
     return price + price * tax_rate
 
 
-total: float = add_tax(20.00, 0.075)
+total: float = add_tax(20.00, 0.075) # (2)
 print(f"Total: ${total:.2f}")
 ```
 
-1. Notice the type of `price` is a `float`.
+1. Notice the type of `price` and `tax_rate` parameters are `float`.
+2. The corresponding _arguments_ that `add_tax` is called with provide values to pass to the function call evaluation.
 
-The annotation `price: float` says `price` should be a decimal number. The arrow `-> float` says the function returns a decimal number.
+The arrow `-> float` says the function returns a decimal number.
 
 ## Parameters are inputs
 

@@ -1200,9 +1200,6 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         import(codeMirrorUrls.cpp),
       ]).then(([highlight, language, state, view, pythonLanguage, cppLanguage]) => ({
         createAnnotationGutter: (annotations) => createAnnotationGutter(
-          view.EditorView,
-          view.Decoration,
-          state.StateField,
           view.GutterMarker,
           view.gutter,
           annotations,
@@ -1280,11 +1277,8 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
   let annotationPopoverListenersInstalled = false;
   let nextAnnotationPopoverId = 0;
 
-  function createAnnotationGutter(EditorView, Decoration, StateField, GutterMarker, gutter, annotations) {
-    const annotationsById = new Map(
-      annotations.map((annotation) => [String(annotation.id), annotation]),
-    );
-    if (!annotationsById.size) {
+  function createAnnotationGutter(GutterMarker, gutter, annotations) {
+    if (!annotations.length) {
       return [];
     }
 
@@ -1342,74 +1336,27 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
       }
     }
 
-    return [
-      gutter({
-        class: "python-runner__annotation-gutter",
-        lineMarker(view, line) {
-          const docLine = view.state.doc.lineAt(line.from);
-          const lineAnnotations = annotationsForLine(docLine.text, annotationsById);
-          if (!lineAnnotations.length) {
-            return null;
-          }
-          return new AnnotationGutterMarker(lineAnnotations);
-        },
-      }),
-      StateField.define({
-        create(state) {
-          return buildAnnotationLineDecorations(Decoration, state.doc, annotationsById);
-        },
-        update(decorations, transaction) {
-          if (transaction.docChanged) {
-            return buildAnnotationLineDecorations(
-              Decoration,
-              transaction.state.doc,
-              annotationsById,
-            );
-          }
-          return decorations.map(transaction.changes);
-        },
-        provide(field) {
-          return EditorView.decorations.from(field);
-        },
-      }),
-    ];
+    return gutter({
+      class: "python-runner__annotation-gutter",
+      lineMarker(view, line) {
+        const docLine = view.state.doc.lineAt(line.from);
+        const lineAnnotations = annotationsForEditorLine(docLine.text, annotations);
+        if (!lineAnnotations.length) {
+          return null;
+        }
+        return new AnnotationGutterMarker(lineAnnotations);
+      },
+    });
   }
 
-  function buildAnnotationLineDecorations(Decoration, doc, annotationsById) {
-    const ranges = [];
-    for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
-      const line = doc.line(lineNumber);
-      if (annotationsForLine(line.text, annotationsById).length) {
-        ranges.push(
-          Decoration.line({
-            class: "python-runner__line-highlight python-runner__annotation-line-highlight",
-          }).range(line.from),
-        );
-      }
-    }
-    return Decoration.set(ranges, true);
+  function annotationsForEditorLine(lineText, annotations) {
+    return annotations.filter((annotation) => annotation.sourceLine === lineText);
   }
 
   function annotationSignature(annotations) {
     return annotations
       .map((annotation) => `${annotation.id}\u0000${annotation.html}`)
       .join("\u0001");
-  }
-
-  function annotationsForLine(lineText, annotationsById) {
-    const seen = new Set();
-    const annotations = [];
-    annotationIdsForLine(lineText).forEach((id) => {
-      if (seen.has(id)) {
-        return;
-      }
-      seen.add(id);
-      const annotation = annotationsById.get(String(id));
-      if (annotation) {
-        annotations.push(annotation);
-      }
-    });
-    return annotations;
   }
 
   function showAnnotationPopover(anchor, annotations) {
@@ -1680,15 +1627,24 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
     return Math.max(min, Math.min(max, integer));
   }
 
-  function firstCommentIndex(lineText) {
-    return ["#", "//", "/*"]
-      .map((delimiter) => lineText.indexOf(delimiter))
-      .filter((index) => index >= 0)
-      .reduce((lowest, index) => Math.min(lowest, index), Number.POSITIVE_INFINITY);
+  function annotationCommentIndex(lineText) {
+    const candidates = [];
+    ["//", "#", "/*"].forEach((delimiter) => {
+      let index = lineText.indexOf(delimiter);
+      while (index >= 0) {
+        const isCommentBoundary = index === 0 || /\s/.test(lineText[index - 1]);
+        const commentText = lineText.slice(index + delimiter.length);
+        if (isCommentBoundary && /^\s*\([A-Za-z0-9]+\)!?/.test(commentText)) {
+          candidates.push(index);
+        }
+        index = lineText.indexOf(delimiter, index + delimiter.length);
+      }
+    });
+    return candidates.length ? Math.min(...candidates) : Number.POSITIVE_INFINITY;
   }
 
   function annotationIdsForLine(lineText) {
-    const commentIndex = firstCommentIndex(lineText);
+    const commentIndex = annotationCommentIndex(lineText);
     if (!Number.isFinite(commentIndex)) {
       return [];
     }
@@ -1707,25 +1663,44 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
     return ids;
   }
 
-  function annotationIdsInSource(source) {
-    const ids = new Set();
-    String(source)
+  function stripAnnotationMarkersFromLine(line) {
+    const commentIndex = annotationCommentIndex(line);
+    if (!Number.isFinite(commentIndex)) {
+      return line;
+    }
+    return line.slice(0, commentIndex).trimEnd();
+  }
+
+  function sourceAnnotationState(source) {
+    const markersById = new Map();
+    const cleanLines = String(source)
       .split("\n")
-      .forEach((line) => {
-        annotationIdsForLine(line).forEach((id) => ids.add(id));
+      .map((line, index) => {
+        const ids = annotationIdsForLine(line);
+        const cleanLine = ids.length ? stripAnnotationMarkersFromLine(line) : line;
+        ids.forEach((id) => {
+          markersById.set(id, {
+            lineNumber: index + 1,
+            sourceLine: cleanLine,
+          });
+        });
+        return cleanLine;
       });
-    return ids;
+    return {
+      markersById,
+      source: cleanLines.join("\n"),
+    };
   }
 
   function collectRunnerAnnotations(widget, source) {
-    const markerIds = annotationIdsInSource(source);
-    if (!markerIds.size) {
-      return { annotations: [], list: undefined };
+    const sourceState = sourceAnnotationState(source);
+    if (!sourceState.markersById.size) {
+      return { annotations: [], list: undefined, source };
     }
 
     const list = widget.nextElementSibling;
     if (!(list instanceof HTMLOListElement)) {
-      return { annotations: [], list: undefined };
+      return { annotations: [], list: undefined, source };
     }
 
     const start = Number.parseInt(list.getAttribute("start") || "1", 10);
@@ -1735,18 +1710,25 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
       if (!(child instanceof HTMLLIElement)) {
         return;
       }
-      annotations.push({
-        html: child.innerHTML,
-        id: annotationListId(list, index),
-      });
+      const id = annotationListId(list, index);
+      const marker = sourceState.markersById.get(id);
+      if (marker) {
+        annotations.push({
+          element: child,
+          html: child.innerHTML,
+          id,
+          lineNumber: marker.lineNumber,
+          sourceLine: marker.sourceLine,
+        });
+      }
       index += 1;
     });
 
-    if (!annotations.some((annotation) => markerIds.has(annotation.id))) {
-      return { annotations: [], list: undefined };
+    if (!annotations.length) {
+      return { annotations: [], list: undefined, source };
     }
 
-    return { annotations, list };
+    return { annotations, list, source: sourceState.source };
   }
 
   function annotationListId(list, index) {
@@ -1770,20 +1752,119 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
   }
 
   function stripAnnotationMarkers(source) {
-    return String(source)
-      .split("\n")
-      .map((line) => {
-        const commentIndex = firstCommentIndex(line);
-        if (!Number.isFinite(commentIndex)) {
-          return line;
-        }
-        const commentText = line.slice(commentIndex);
-        if (!/\([A-Za-z0-9]+\)!?/.test(commentText)) {
-          return line;
-        }
-        return line.slice(0, commentIndex).trimEnd();
-      })
-      .join("\n");
+    return sourceAnnotationState(source).source;
+  }
+
+  function clearAnnotationNoteHighlights(widget) {
+    widget
+      .querySelectorAll(".python-runner__annotation-note-highlight")
+      .forEach((line) => line.classList.remove("python-runner__annotation-note-highlight"));
+  }
+
+  function currentAnnotationLineNumber(widget, annotation) {
+    if (!widget.pythonRunnerEditor) {
+      return undefined;
+    }
+    const doc = widget.pythonRunnerEditor.state.doc;
+    for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
+      if (doc.line(lineNumber).text === annotation.sourceLine) {
+        return lineNumber;
+      }
+    }
+    return undefined;
+  }
+
+  function setAnnotationNoteHighlight(widget, annotation, active) {
+    clearAnnotationNoteHighlights(widget);
+    if (!active) {
+      return;
+    }
+    const lineNumber = currentAnnotationLineNumber(widget, annotation);
+    if (!lineNumber) {
+      return;
+    }
+    const line = widget.querySelectorAll(".cm-content .cm-line")[lineNumber - 1];
+    if (line) {
+      line.classList.add("python-runner__annotation-note-highlight");
+    }
+  }
+
+  function createAnnotationHeading() {
+    const heading = document.createElement("div");
+    heading.className = "python-runner__annotation-heading";
+    heading.dataset.pythonRunnerAnnotationHeading = "";
+
+    const icon = document.createElement("span");
+    icon.className = "python-runner__annotation-heading-icon";
+    icon.innerHTML = annotationIconSvg;
+
+    const label = document.createElement("span");
+    label.textContent = "Annotations";
+
+    heading.append(icon, label);
+    return heading;
+  }
+
+  function updateAnnotationListOffset(widget, heading, list) {
+    if (!heading.isConnected || !list.isConnected) {
+      return;
+    }
+    const gutters = widget.querySelector(".cm-gutters");
+    if (!gutters) {
+      return;
+    }
+    const gutterWidth = gutters.getBoundingClientRect().width;
+    if (!Number.isFinite(gutterWidth) || gutterWidth <= 0) {
+      return;
+    }
+    const offset = `${gutterWidth}px`;
+    heading.style.setProperty("--python-runner-annotation-offset", offset);
+    list.style.setProperty("--python-runner-annotation-offset", offset);
+  }
+
+  function watchAnnotationListOffset(widget, heading, list) {
+    const update = () => updateAnnotationListOffset(widget, heading, list);
+    update();
+    window.requestAnimationFrame(update);
+
+    const gutters = widget.querySelector(".cm-gutters");
+    if (!gutters || !("ResizeObserver" in window)) {
+      return;
+    }
+    if (widget.pythonRunnerAnnotationOffsetObserver) {
+      widget.pythonRunnerAnnotationOffsetObserver.disconnect();
+    }
+    const observer = new ResizeObserver(update);
+    observer.observe(gutters);
+    widget.pythonRunnerAnnotationOffsetObserver = observer;
+  }
+
+  function prepareAnnotationList(widget, annotationState) {
+    const { annotations, list } = annotationState;
+    if (!list || !annotations.length) {
+      return;
+    }
+    list.hidden = false;
+    list.classList.add("python-runner__annotation-list");
+    list.setAttribute("data-python-runner-annotations", "");
+    let heading = list.previousElementSibling;
+    if (!(heading instanceof HTMLElement) || !heading.matches("[data-python-runner-annotation-heading]")) {
+      heading = createAnnotationHeading();
+      list.insertAdjacentElement("beforebegin", heading);
+    }
+    watchAnnotationListOffset(widget, heading, list);
+    annotations.forEach((annotation) => {
+      const item = annotation.element;
+      if (!item) {
+        return;
+      }
+      item.dataset.pythonRunnerAnnotation = annotation.id;
+      item.tabIndex = 0;
+      item.addEventListener("pointerenter", () => setAnnotationNoteHighlight(widget, annotation, true));
+      item.addEventListener("pointerleave", () => setAnnotationNoteHighlight(widget, annotation, false));
+      item.addEventListener("focus", () => setAnnotationNoteHighlight(widget, annotation, true));
+      item.addEventListener("blur", () => setAnnotationNoteHighlight(widget, annotation, false));
+    });
   }
 
   function runnerIsEditable(widget) {
@@ -1896,6 +1977,7 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
     const codeElement = codeBlock.querySelector("code");
     const source = codeElement.textContent;
     const annotationState = collectRunnerAnnotations(widget, source);
+    const editorSource = annotationState.source;
     const editorHost = document.createElement("div");
     editorHost.className = "python-runner__editor";
     codeBlock.insertAdjacentElement("afterend", editorHost);
@@ -1967,7 +2049,7 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
 
       widget.pythonRunnerDiagnosticsEffect = setDiagnosticsEffect;
       widget.pythonRunnerEditor = new EditorView({
-        doc: source,
+        doc: editorSource,
         parent: editorHost,
         extensions,
       });
@@ -1975,10 +2057,7 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         setEditorDiagnostics(widget, widget.pythonRunnerDiagnostics);
       }
       codeBlock.hidden = true;
-      if (annotationState.list) {
-        annotationState.list.hidden = true;
-        annotationState.list.setAttribute("data-python-runner-annotations", "");
-      }
+      prepareAnnotationList(widget, annotationState);
     } catch (error) {
       editorHost.remove();
       console.warn("CodeMirror failed to load; using static code fallback.", error);
