@@ -52,7 +52,8 @@ pygments_lang_class = true
 [project.markdown_extensions."pymdownx.superfences"]
 custom_fences = [
   { name = "mermaid", class = "mermaid" },
-  { name = "python_runner", class = "python-runner", format = "markdown_plugins.pyodide_fence.format_python_runner" },
+  { name = "python", class = "python", format = "markdown_plugins.pyodide_fence.format_python_fence", validator = "markdown_plugins.pyodide_fence.python_fence_validator" },
+  { name = "c", class = "c", format = "markdown_plugins.pyodide_fence.format_c_fence", validator = "markdown_plugins.pyodide_fence.c_fence_validator" },
   { name = "python_diagram_runner", class = "python-diagram-runner", format = "markdown_plugins.pyodide_fence.format_python_diagram_runner" },
   { name = "c_runner", class = "c-runner", format = "markdown_plugins.pyodide_fence.format_c_runner" },
   { name = "c_terminal_runner", class = "c-terminal-runner", format = "markdown_plugins.pyodide_fence.format_c_terminal_runner" },

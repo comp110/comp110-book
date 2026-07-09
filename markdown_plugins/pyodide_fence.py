@@ -189,21 +189,113 @@ def _highlight_lines(attrs: dict[str, Any]) -> str:
     return ",".join(lines)
 
 
-def _python_runner_attributes(attrs: dict[str, Any]) -> str:
+def _runner_attributes(params: dict[str, Any]) -> str:
     attributes = []
-    if not _boolean_option(attrs.get("editable"), default=True):
-        attributes.append('data-python-runner-editable="false"')
+    if not _boolean_option(params.get("editable"), default=True):
+        attributes.append('data-runner-editable="false"')
 
-    highlight_lines = _highlight_lines(attrs)
+    highlight_lines = _highlight_lines(params)
     if highlight_lines:
-        attributes.append(
-            f'data-python-runner-highlight-lines="{escape(highlight_lines, quote=True)}"'
-        )
+        attributes.append(f'data-runner-highlight-lines="{escape(highlight_lines, quote=True)}"')
 
     return f" {' '.join(attributes)}" if attributes else ""
 
 
-def format_python_runner(
+def _runner_params(attrs: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
+    params = dict(attrs)
+    for key, value in options.items():
+        if key.startswith("_runner_"):
+            params[key.removeprefix("_runner_")] = value
+        elif key == "title" and key not in params:
+            params[key] = value
+    return params
+
+
+def _is_runnable(params: dict[str, Any]) -> bool:
+    return (
+        _boolean_option(params.get("runnable"), default=False)
+        or _boolean_option(params.get("run"), default=False)
+    )
+
+
+def _standard_fence_validator(
+    language: str,
+    inputs: dict[str, Any],
+    options: dict[str, Any],
+    attrs: dict[str, Any],
+    md: Any,
+) -> bool:
+    """Validate standard language fences with optional runner controls."""
+    from pymdownx.superfences import highlight_validator
+
+    requested_runnable = (
+        _boolean_option(inputs.get("runnable"), default=False)
+        or _boolean_option(inputs.get("run"), default=False)
+    )
+    runner_names = {
+        "runnable",
+        "run",
+        "editable",
+        "highlight",
+        "highlights",
+        "line_highlight",
+        "line_highlights",
+        "line-highlight",
+        "line-highlights",
+        "highlight_lines",
+    }
+    if requested_runnable:
+        runner_names.update({"hl_lines", "stdin"})
+
+    highlight_inputs = {}
+    for key, value in inputs.items():
+        if key in runner_names:
+            options[f"_runner_{key.replace('-', '_')}"] = value
+        else:
+            highlight_inputs[key] = value
+
+    return highlight_validator(language, highlight_inputs, options, attrs, md)
+
+
+def python_fence_validator(
+    language: str,
+    inputs: dict[str, Any],
+    options: dict[str, Any],
+    attrs: dict[str, Any],
+    md: Any,
+) -> bool:
+    """Validate standard ``python`` fences with optional runner controls."""
+    return _standard_fence_validator(language, inputs, options, attrs, md)
+
+
+def c_fence_validator(
+    language: str,
+    inputs: dict[str, Any],
+    options: dict[str, Any],
+    attrs: dict[str, Any],
+    md: Any,
+) -> bool:
+    """Validate standard ``c`` fences with optional runner controls."""
+    return _standard_fence_validator(language, inputs, options, attrs, md)
+
+
+def _highlight_fence(
+    source: str,
+    language: str,
+    options: dict[str, Any],
+    md: Any,
+    **kwargs: Any,
+) -> str:
+    preprocessor = md.preprocessors["fenced_code_block"]
+    highlight_options = {
+        key: value
+        for key, value in options.items()
+        if not key.startswith("_runner_")
+    }
+    return preprocessor.highlight(source, language, highlight_options, md, **kwargs)
+
+
+def format_python_fence(
     source: str,
     language: str,
     class_name: str,
@@ -211,16 +303,46 @@ def format_python_runner(
     md: Any,
     **kwargs: Any,
 ) -> str:
-    """Render a ``python_runner`` fence as a Pyodide-backed runner."""
+    """Render standard ``python`` fences, optionally as Pyodide runners."""
     attrs = kwargs.get("attrs") or {}
+    params = _runner_params(attrs, options)
+    if not _is_runnable(params):
+        return _highlight_fence(source, language, options, md, **kwargs)
+
     return _format_runner(
         source,
-        class_name,
+        "python-runner",
         code_language="python",
         data_attribute="data-python-runner",
         default_title="Runnable Python",
-        extra_attributes=_python_runner_attributes(attrs),
-        title=attrs.get("title"),
+        extra_attributes=_runner_attributes(params),
+        title=params.get("title"),
+    )
+
+
+def format_c_fence(
+    source: str,
+    language: str,
+    class_name: str,
+    options: dict[str, Any],
+    md: Any,
+    **kwargs: Any,
+) -> str:
+    """Render standard ``c`` fences, optionally as browser-compiled runners."""
+    attrs = kwargs.get("attrs") or {}
+    params = _runner_params(attrs, options)
+    if not _is_runnable(params):
+        return _highlight_fence(source, language, options, md, **kwargs)
+
+    return _format_runner(
+        source,
+        "c-runner",
+        code_language="c",
+        data_attribute="data-c-runner",
+        default_title="Runnable C",
+        extra_attributes=_runner_attributes(params),
+        stdin=str(params.get("stdin", "")),
+        title=params.get("title"),
     )
 
 
@@ -289,6 +411,7 @@ def format_c_runner(
         code_language="c",
         data_attribute="data-c-runner",
         default_title="Runnable C",
+        extra_attributes=_runner_attributes(attrs),
         stdin=str(attrs.get("stdin", "")),
         title=attrs.get("title"),
     )

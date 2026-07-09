@@ -13,7 +13,7 @@ This demo uses the same editable Python runner as the earlier examples, with sma
   Your browser does not support the canvas element.
 </canvas>
 
-```python_runner
+```python { runnable=true }
 from __future__ import annotations
 
 from random import uniform

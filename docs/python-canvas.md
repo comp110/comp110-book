@@ -13,7 +13,7 @@ This demo pairs a runnable Python snippet with a real HTML canvas. The browser p
   Your browser does not support the canvas element.
 </canvas>
 
-```python_runner
+```python { runnable=true }
 from __future__ import annotations
 
 from math import cos, radians, sin

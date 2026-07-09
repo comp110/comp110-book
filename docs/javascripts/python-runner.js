@@ -34,7 +34,7 @@ def _runner_id() -> str:
         if isinstance(value, str) and value:
             return value
         frame = frame.f_back
-    raise RuntimeError("browser_canvas can only be used from a python_runner example.")
+    raise RuntimeError("browser_canvas can only be used from a runnable Python example.")
 
 
 def _call(name: str, *args: object) -> None:
@@ -1390,7 +1390,7 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
   }
 
   function runnerIsEditable(widget) {
-    return widget.getAttribute("data-python-runner-editable") !== "false";
+    return widget.getAttribute("data-runner-editable") !== "false";
   }
 
   function parseLineHighlights(value) {
@@ -1521,7 +1521,7 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         languageExtension,
         syntaxHighlighting(highlightStyle, { fallback: true }),
         diagnosticField,
-        createLineHighlightField(parseLineHighlights(widget.dataset.pythonRunnerHighlightLines)),
+        createLineHighlightField(parseLineHighlights(widget.dataset.runnerHighlightLines)),
         EditorView.lineWrapping,
         EditorView.editable.of(isEditable),
         EditorView.theme({

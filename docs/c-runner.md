@@ -7,7 +7,7 @@ description: A browser-compiled C example with stdin, stdout, stderr, and compil
 
 C examples use `stdio.h` and the standard C library through a browser-based WASI toolchain. The program is compiled with Clang, linked to WebAssembly, and then run inside the page.
 
-```c_runner
+```c { runnable=true title="Squares" editable=false highlight="4,5" }
 #include <stdio.h>
 
 int main(void) {
@@ -23,7 +23,7 @@ int main(void) {
 
 Use the stdin box when a program calls `scanf`, `fgets`, or another input function. Standard error is captured alongside standard output so diagnostics from the program are visible too.
 
-```c_runner
+```c { runnable=true title="Input Loop" }
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -49,7 +49,7 @@ int main(void) {
 
 Compiler errors are reported in the output pane and underlined in the editor.
 
-```c_runner
+```c { runnable=true title="Compiler Feedback" }
 #include <stdio.h>
 
 int main(void) {

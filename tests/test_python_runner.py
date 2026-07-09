@@ -8,10 +8,50 @@ import sys
 import threading
 from pathlib import Path
 
+from markdown import Markdown
 from playwright.sync_api import expect, sync_playwright
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def render_runner_markdown(source: str) -> str:
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from markdown_plugins.pyodide_fence import (
+        c_fence_validator,
+        format_c_fence,
+        format_python_fence,
+        python_fence_validator,
+    )
+
+    md = Markdown(
+        extensions=["attr_list", "pymdownx.highlight", "pymdownx.superfences"],
+        extension_configs={
+            "pymdownx.highlight": {
+                "anchor_linenums": True,
+                "line_spans": "__span",
+                "pygments_lang_class": True,
+            },
+            "pymdownx.superfences": {
+                "custom_fences": [
+                    {
+                        "name": "python",
+                        "class": "python",
+                        "format": format_python_fence,
+                        "validator": python_fence_validator,
+                    },
+                    {
+                        "name": "c",
+                        "class": "c",
+                        "format": format_c_fence,
+                        "validator": c_fence_validator,
+                    },
+                ],
+            },
+        },
+    )
+    return md.convert(source)
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -63,7 +103,49 @@ def wait_for_terminal_text(page, index: int, text: str, timeout: int = 180_000) 
     )
 
 
-def test_python_runner_examples_are_editable_and_run() -> None:
+def test_standard_language_fences_opt_into_runners_with_runnable_parameter() -> None:
+    plain_python_html = render_runner_markdown('```python\nprint("plain")\n```')
+    assert "data-python-runner" not in plain_python_html
+    assert 'class="language-python highlight"' in plain_python_html
+    assert 'class="python-runner__run"' not in plain_python_html
+
+    highlighted_python_html = render_runner_markdown(
+        '```python { title="Plain Python" hl_lines="1" }\n'
+        'print("highlighted")\n'
+        '```'
+    )
+    assert "data-python-runner" not in highlighted_python_html
+    assert '<span class="filename">Plain Python</span>' in highlighted_python_html
+    assert '<span class="hll">' in highlighted_python_html
+
+    python_runnable_html = render_runner_markdown(
+        '```python { runnable=true title="Runnable Python" editable=false highlight="1,2" }\n'
+        'print("runner")\n'
+        '```'
+    )
+    assert "data-python-runner" in python_runnable_html
+    assert 'data-runner-editable="false"' in python_runnable_html
+    assert 'data-runner-highlight-lines="1,2"' in python_runnable_html
+    assert '<span class="python-runner__title">Runnable Python</span>' in python_runnable_html
+
+    plain_c_html = render_runner_markdown('```c\nputs("plain");\n```')
+    assert "data-c-runner" not in plain_c_html
+    assert 'class="language-c highlight"' in plain_c_html
+
+    c_runner_html = render_runner_markdown(
+        '```c { runnable=true title="Runnable C" editable=false highlight="1" stdin="Maya 3\\n" }\n'
+        '#include <stdio.h>\n'
+        'int main(void) { return 0; }\n'
+        '```'
+    )
+    assert "data-c-runner" in c_runner_html
+    assert 'data-runner-editable="false"' in c_runner_html
+    assert 'data-runner-highlight-lines="1"' in c_runner_html
+    assert '<span class="python-runner__title">Runnable C</span>' in c_runner_html
+    assert 'Maya 3' in c_runner_html
+
+
+def test_runnable_python_examples_are_editable_and_run() -> None:
     subprocess.run(
         [sys.executable, "-m", "zensical", "build"],
         cwd=ROOT,
@@ -93,10 +175,10 @@ def test_python_runner_examples_are_editable_and_run() -> None:
 
             first_runner = page.locator("[data-python-runner]").nth(0)
             readonly_runner = page.locator("[data-python-runner]").nth(2)
-            expect(first_runner).to_have_attribute("data-python-runner-highlight-lines", "1,5")
+            expect(first_runner).to_have_attribute("data-runner-highlight-lines", "1,5")
             expect(first_runner.locator(".python-runner__title")).to_have_text("Tax Calculator")
-            expect(readonly_runner).to_have_attribute("data-python-runner-editable", "false")
-            expect(readonly_runner).to_have_attribute("data-python-runner-highlight-lines", "1,5")
+            expect(readonly_runner).to_have_attribute("data-runner-editable", "false")
+            expect(readonly_runner).to_have_attribute("data-runner-highlight-lines", "1,5")
             expect(first_runner.locator(".python-runner__line-highlight")).to_have_count(2)
             expect(readonly_runner.locator(".python-runner__line-highlight")).to_have_count(2)
             expect(readonly_runner.locator(".cm-content")).to_have_attribute("contenteditable", "false")
@@ -875,6 +957,34 @@ def test_c_runner_examples_compile_run_and_report_errors() -> None:
                 "data-c-runner-ready",
                 "true",
             )
+
+            first_c_runner = page.locator("[data-c-runner]").nth(0)
+            expect(first_c_runner.locator(".python-runner__title")).to_have_text("Squares")
+            expect(first_c_runner).to_have_attribute("data-runner-editable", "false")
+            expect(first_c_runner).to_have_attribute("data-runner-highlight-lines", "4,5")
+            expect(first_c_runner.locator(".python-runner__line-highlight")).to_have_count(2)
+            expect(first_c_runner.locator(".cm-content")).to_have_attribute("contenteditable", "false")
+            first_c_source = page.evaluate(
+                """
+                document
+                  .querySelectorAll("[data-c-runner]")[0]
+                  .pythonRunnerEditor
+                  .state
+                  .doc
+                  .toString()
+                """
+            )
+            first_c_text = page.evaluate(
+                """
+                () => {
+                  const widget = document.querySelectorAll("[data-c-runner]")[0];
+                  widget.querySelector(".cm-content").focus();
+                  document.execCommand("insertText", false, "int broken = ;");
+                  return widget.pythonRunnerEditor.state.doc.toString();
+                }
+                """
+            )
+            assert first_c_text == first_c_source
 
             page.locator(".python-runner__run").nth(0).click()
             first_output = page.locator(".python-runner__output").nth(0)

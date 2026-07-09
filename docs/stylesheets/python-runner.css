@@ -154,7 +154,7 @@
     inset 3px 0 0 #ffd43b;
 }
 
-.python-runner[data-python-runner-editable="false"] .cm-content {
+.python-runner[data-runner-editable="false"] .cm-content {
   cursor: default;
 }
 

@@ -10,7 +10,7 @@ In Python, a function definition starts with `def`, names the parameters in pare
 
 Static type annotations are labels for people and tools. They say what kind of value a parameter should receive and what kind of value the function should return.
 
-```python_runner { title="Tax Calculator" highlight="1,5" }
+```python { runnable=true title="Tax Calculator" highlight="1,5" }
 def add_tax(price: float, tax_rate: float) -> float:
     return price + price * tax_rate
 
@@ -25,7 +25,7 @@ The annotation `price: float` says `price` should be a decimal number. The arrow
 
 Each parameter is a name the function can use inside its body. When we call the function, Python matches each argument to a parameter.
 
-```python_runner
+```python { runnable=true }
 def greet(name: str, course: str) -> str:
     return f"Hi {name}, welcome to {course}!"
 
@@ -39,7 +39,7 @@ print(greet("Jordan", "CS1"))
 
 A function call can be stored in a variable, printed, or passed into another function.
 
-```python_runner { editable=false highlight="1,5" }
+```python { runnable=true editable=false highlight="1,5" }
 def square(number: int) -> int:
     return number * number
 
