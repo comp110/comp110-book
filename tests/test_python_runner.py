@@ -175,13 +175,122 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
 
             first_runner = page.locator("[data-python-runner]").nth(0)
             readonly_runner = page.locator("[data-python-runner]").nth(2)
-            expect(first_runner).to_have_attribute("data-runner-highlight-lines", "1,5")
+            expect(first_runner).to_have_attribute("data-runner-highlight-lines", "5")
             expect(first_runner.locator(".python-runner__title")).to_have_text("Tax Calculator")
             expect(readonly_runner).to_have_attribute("data-runner-editable", "false")
             expect(readonly_runner).to_have_attribute("data-runner-highlight-lines", "1,5")
             expect(first_runner.locator(".python-runner__line-highlight")).to_have_count(2)
             expect(readonly_runner.locator(".python-runner__line-highlight")).to_have_count(2)
             expect(readonly_runner.locator(".cm-content")).to_have_attribute("contenteditable", "false")
+
+            expect(first_runner.locator(".python-runner__annotation-gutter")).to_have_count(1)
+            expect(page.locator("[data-python-runner]").nth(1).locator(".python-runner__annotation-gutter")).to_have_count(0)
+            annotation_marker = first_runner.locator(".python-runner__annotation-marker")
+            expect(annotation_marker).to_have_count(1)
+            expect(annotation_marker).to_have_attribute("data-python-runner-annotations", "1")
+            expect(annotation_marker).to_have_text("1")
+            assert page.evaluate(
+                """
+                () => {
+                  const list = document.querySelector("[data-python-runner]").nextElementSibling;
+                  return Boolean(list && list.matches("ol[hidden][data-python-runner-annotations]"));
+                }
+                """
+            )
+            assert page.evaluate(
+                """
+                () => {
+                  const line = document.querySelector("[data-python-runner] .cm-line");
+                  return line.classList.contains("python-runner__line-highlight")
+                    && line.classList.contains("python-runner__annotation-line-highlight");
+                }
+                """
+            )
+            marker_styles = page.evaluate(
+                """
+                () => {
+                  const marker = document.querySelector(".python-runner__annotation-marker");
+                  const number = marker.querySelector(".python-runner__annotation-marker-number");
+                  const markerStyle = getComputedStyle(marker);
+                  const markerRect = marker.getBoundingClientRect();
+                  const numberRect = number.getBoundingClientRect();
+                  return {
+                    background: markerStyle.backgroundColor,
+                    borderWidth: markerStyle.borderTopWidth,
+                    markerCenterY: markerRect.top + markerRect.height / 2,
+                    numberCenterY: numberRect.top + numberRect.height / 2,
+                  };
+                }
+                """
+            )
+            assert marker_styles["background"] != "rgba(0, 0, 0, 0)"
+            assert marker_styles["borderWidth"] == "0px"
+            assert abs(marker_styles["markerCenterY"] - marker_styles["numberCenterY"]) < 1
+
+            annotation_marker.hover()
+            popover = page.locator(".python-runner__annotation-popover")
+            expect(popover).to_be_visible()
+            expect(popover).to_have_attribute("data-placement", "above")
+            expect(popover).to_contain_text("Notice the type of price is a float.")
+            expect(popover.locator(".python-runner__annotation-number")).to_have_text("1")
+            annotation_number_background = page.evaluate(
+                """
+                () => getComputedStyle(
+                  document.querySelector(".python-runner__annotation-number"),
+                ).backgroundColor
+                """
+            )
+            assert annotation_number_background == "rgb(245, 159, 0)"
+            position = page.evaluate(
+                """
+                () => {
+                  const marker = document.querySelector(".python-runner__annotation-marker");
+                  const popover = document.querySelector(".python-runner__annotation-popover");
+                  const markerRect = marker.getBoundingClientRect();
+                  const popoverRect = popover.getBoundingClientRect();
+                  return {
+                    markerBottom: markerRect.bottom,
+                    markerTop: markerRect.top,
+                    placement: popover.dataset.placement,
+                    popoverBottom: popoverRect.bottom,
+                    popoverTop: popoverRect.top,
+                  };
+                }
+                """
+            )
+            assert position["placement"] == "above"
+            assert position["popoverBottom"] <= position["markerTop"]
+
+            page.evaluate(
+                """
+                () => {
+                  const marker = document.querySelector(".python-runner__annotation-marker");
+                  const markerTop = marker.getBoundingClientRect().top + window.scrollY;
+                  window.scrollTo(0, Math.max(0, markerTop - 58));
+                }
+                """
+            )
+            annotation_marker.hover()
+            expect(popover).to_have_attribute("data-placement", "below")
+            below_position = page.evaluate(
+                """
+                () => {
+                  const marker = document.querySelector(".python-runner__annotation-marker");
+                  const popover = document.querySelector(".python-runner__annotation-popover");
+                  const markerRect = marker.getBoundingClientRect();
+                  const popoverRect = popover.getBoundingClientRect();
+                  return {
+                    markerBottom: markerRect.bottom,
+                    markerTop: markerRect.top,
+                    placement: popover.dataset.placement,
+                    popoverBottom: popoverRect.bottom,
+                    popoverTop: popoverRect.top,
+                  };
+                }
+                """
+            )
+            assert below_position["placement"] == "below"
+            assert below_position["popoverTop"] >= below_position["markerBottom"]
 
             highlight_styles = page.evaluate(
                 """
@@ -269,6 +378,8 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
             )
             assert editor_text == 'print("edited in codemirror")'
             expect(first_runner.locator(".python-runner__line-highlight")).to_have_count(0)
+            expect(first_runner.locator(".python-runner__annotation-marker")).to_have_count(0)
+            expect(page.locator(".python-runner__annotation-popover")).to_have_count(0)
 
             page.locator(".python-runner__run").first.click()
             output = page.locator(".python-runner__output").first
@@ -962,7 +1073,8 @@ def test_c_runner_examples_compile_run_and_report_errors() -> None:
             expect(first_c_runner.locator(".python-runner__title")).to_have_text("Squares")
             expect(first_c_runner).to_have_attribute("data-runner-editable", "false")
             expect(first_c_runner).to_have_attribute("data-runner-highlight-lines", "4,5")
-            expect(first_c_runner.locator(".python-runner__line-highlight")).to_have_count(2)
+            expect(first_c_runner.locator(".python-runner__line-highlight")).to_have_count(3)
+            expect(first_c_runner.locator(".python-runner__annotation-marker")).to_have_text("1")
             expect(first_c_runner.locator(".cm-content")).to_have_attribute("contenteditable", "false")
             first_c_source = page.evaluate(
                 """

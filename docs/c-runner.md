@@ -15,9 +15,11 @@ int main(void) {
         printf("%d squared is %d\n", value, value * value);
     }
 
-    return 0;
+    return 0; // (1) 
 }
 ```
+
+1. Return success
 
 ## Reading standard input
 

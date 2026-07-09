@@ -154,6 +154,133 @@
     inset 3px 0 0 #ffd43b;
 }
 
+.python-runner .cm-gutter.python-runner__annotation-gutter {
+  min-width: 1.75rem;
+}
+
+.python-runner .python-runner__annotation-gutter .cm-gutterElement {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  padding: 0 0.2rem;
+}
+
+.python-runner__annotation-marker {
+  align-items: center;
+  background: rgba(255, 214, 10, 0.24);
+  border: 0;
+  border-radius: 999px;
+  color: #7a4f00;
+  cursor: help;
+  display: inline-flex;
+  height: 1.45rem;
+  justify-content: center;
+  padding: 0;
+  position: relative;
+  width: 1.45rem;
+}
+
+.python-runner__annotation-marker:hover,
+.python-runner__annotation-marker:focus-visible,
+.python-runner__annotation-marker[aria-expanded="true"] {
+  background: rgba(255, 214, 10, 0.36);
+  color: #5f3f00;
+  outline: 2px solid transparent;
+}
+
+.python-runner__annotation-marker:focus-visible {
+  outline-color: var(--md-accent-fg-color);
+  outline-offset: 1px;
+}
+
+.python-runner__annotation-icon {
+  height: 1rem;
+  width: 1rem;
+}
+
+.python-runner__annotation-marker-number {
+  font-size: 0.52rem;
+  font-weight: 800;
+  left: 50%;
+  line-height: 1;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.python-runner__annotation-popover {
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-left: 3px solid var(--md-accent-fg-color);
+  border-radius: 6px;
+  box-shadow: var(--md-shadow-z2);
+  color: var(--md-default-fg-color);
+  font: 0.78rem/1.45 var(--md-text-font, sans-serif);
+  max-width: min(26rem, calc(100vw - 1rem));
+  padding: 0.55rem 0.65rem;
+  position: fixed;
+  white-space: normal;
+  z-index: 10000;
+}
+
+.python-runner__annotation-entry {
+  align-items: flex-start;
+  display: flex;
+  gap: 0.55rem;
+}
+
+.python-runner__annotation-entry + .python-runner__annotation-entry {
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.python-runner__annotation-number {
+  align-items: center;
+  background: #f59f00;
+  border-radius: 999px;
+  color: #1f2937;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  height: 1.25rem;
+  justify-content: center;
+  line-height: 1;
+  min-width: 1.25rem;
+  padding: 0 0.25rem;
+}
+
+.python-runner__annotation-body {
+  min-width: 0;
+}
+
+.python-runner__annotation-body > :first-child {
+  margin-top: 0;
+}
+
+.python-runner__annotation-body > :last-child {
+  margin-bottom: 0;
+}
+
+[data-md-color-scheme="slate"] .python-runner__annotation-marker {
+  background: rgba(255, 224, 102, 0.22);
+  color: #ffe066;
+}
+
+[data-md-color-scheme="slate"] .python-runner__annotation-marker:hover,
+[data-md-color-scheme="slate"] .python-runner__annotation-marker:focus-visible,
+[data-md-color-scheme="slate"] .python-runner__annotation-marker[aria-expanded="true"] {
+  background: rgba(255, 224, 102, 0.34);
+  color: #fff3bf;
+}
+
+[data-md-color-scheme="slate"] .python-runner__annotation-number {
+  background: #ffd43b;
+  color: #1f2937;
+}
+
 .python-runner[data-runner-editable="false"] .cm-content {
   cursor: default;
 }

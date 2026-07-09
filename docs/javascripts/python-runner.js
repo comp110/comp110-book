@@ -1199,6 +1199,14 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         import(codeMirrorUrls.python),
         import(codeMirrorUrls.cpp),
       ]).then(([highlight, language, state, view, pythonLanguage, cppLanguage]) => ({
+        createAnnotationGutter: (annotations) => createAnnotationGutter(
+          view.EditorView,
+          view.Decoration,
+          state.StateField,
+          view.GutterMarker,
+          view.gutter,
+          annotations,
+        ),
         ...createDiagnosticTools(view.EditorView, view.Decoration, state.StateEffect, state.StateField),
         EditorState: state.EditorState,
         EditorView: view.EditorView,
@@ -1258,6 +1266,289 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         color: "var(--md-code-hl-special-color, #cf222e)",
       },
     ]);
+  }
+
+  const annotationIconSvg = `
+    <svg class="python-runner__annotation-icon" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+      aria-hidden="true" focusable="false">
+      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+    </svg>`;
+  let activeAnnotationPopover;
+  let activeAnnotationAnchor;
+  let annotationPopoverHideTimer;
+  let annotationPopoverListenersInstalled = false;
+  let nextAnnotationPopoverId = 0;
+
+  function createAnnotationGutter(EditorView, Decoration, StateField, GutterMarker, gutter, annotations) {
+    const annotationsById = new Map(
+      annotations.map((annotation) => [String(annotation.id), annotation]),
+    );
+    if (!annotationsById.size) {
+      return [];
+    }
+
+    class AnnotationGutterMarker extends GutterMarker {
+      constructor(lineAnnotations) {
+        super();
+        this.lineAnnotations = lineAnnotations;
+      }
+
+      eq(other) {
+        return annotationSignature(this.lineAnnotations)
+          === annotationSignature(other.lineAnnotations);
+      }
+
+      toDOM() {
+        const ids = this.lineAnnotations.map((annotation) => annotation.id).join(", ");
+        const markerLabel = this.lineAnnotations.map((annotation) => annotation.id).join(",");
+        const marker = document.createElement("button");
+        marker.type = "button";
+        marker.className = "python-runner__annotation-marker";
+        marker.dataset.pythonRunnerAnnotations = ids;
+        marker.setAttribute("aria-expanded", "false");
+        marker.setAttribute("aria-label", `Show annotation ${ids}`);
+        marker.title = `Annotation ${ids}`;
+        marker.innerHTML = annotationIconSvg;
+        const number = document.createElement("span");
+        number.className = "python-runner__annotation-marker-number";
+        number.textContent = markerLabel;
+        number.setAttribute("aria-hidden", "true");
+        marker.append(number);
+
+        marker.addEventListener("pointerenter", () => {
+          showAnnotationPopover(marker, this.lineAnnotations);
+        });
+        marker.addEventListener("pointerleave", () => {
+          scheduleAnnotationPopoverHide(marker);
+        });
+        marker.addEventListener("focus", () => {
+          showAnnotationPopover(marker, this.lineAnnotations);
+        });
+        marker.addEventListener("blur", () => {
+          scheduleAnnotationPopoverHide(marker);
+        });
+        marker.addEventListener("click", (event) => {
+          event.preventDefault();
+          showAnnotationPopover(marker, this.lineAnnotations);
+        });
+        marker.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            hideAnnotationPopover();
+            marker.blur();
+          }
+        });
+        return marker;
+      }
+    }
+
+    return [
+      gutter({
+        class: "python-runner__annotation-gutter",
+        lineMarker(view, line) {
+          const docLine = view.state.doc.lineAt(line.from);
+          const lineAnnotations = annotationsForLine(docLine.text, annotationsById);
+          if (!lineAnnotations.length) {
+            return null;
+          }
+          return new AnnotationGutterMarker(lineAnnotations);
+        },
+      }),
+      StateField.define({
+        create(state) {
+          return buildAnnotationLineDecorations(Decoration, state.doc, annotationsById);
+        },
+        update(decorations, transaction) {
+          if (transaction.docChanged) {
+            return buildAnnotationLineDecorations(
+              Decoration,
+              transaction.state.doc,
+              annotationsById,
+            );
+          }
+          return decorations.map(transaction.changes);
+        },
+        provide(field) {
+          return EditorView.decorations.from(field);
+        },
+      }),
+    ];
+  }
+
+  function buildAnnotationLineDecorations(Decoration, doc, annotationsById) {
+    const ranges = [];
+    for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
+      const line = doc.line(lineNumber);
+      if (annotationsForLine(line.text, annotationsById).length) {
+        ranges.push(
+          Decoration.line({
+            class: "python-runner__line-highlight python-runner__annotation-line-highlight",
+          }).range(line.from),
+        );
+      }
+    }
+    return Decoration.set(ranges, true);
+  }
+
+  function annotationSignature(annotations) {
+    return annotations
+      .map((annotation) => `${annotation.id}\u0000${annotation.html}`)
+      .join("\u0001");
+  }
+
+  function annotationsForLine(lineText, annotationsById) {
+    const seen = new Set();
+    const annotations = [];
+    annotationIdsForLine(lineText).forEach((id) => {
+      if (seen.has(id)) {
+        return;
+      }
+      seen.add(id);
+      const annotation = annotationsById.get(String(id));
+      if (annotation) {
+        annotations.push(annotation);
+      }
+    });
+    return annotations;
+  }
+
+  function showAnnotationPopover(anchor, annotations) {
+    if (!annotations.length) {
+      return;
+    }
+
+    window.clearTimeout(annotationPopoverHideTimer);
+    if (activeAnnotationAnchor === anchor && activeAnnotationPopover) {
+      positionAnnotationPopover(anchor, activeAnnotationPopover);
+      return;
+    }
+
+    hideAnnotationPopover();
+    const popover = document.createElement("div");
+    nextAnnotationPopoverId += 1;
+    popover.id = `python-runner-annotation-popover-${nextAnnotationPopoverId}`;
+    popover.className = "python-runner__annotation-popover";
+    popover.dataset.placement = "above";
+    popover.setAttribute("role", "tooltip");
+
+    annotations.forEach((annotation) => {
+      popover.append(createAnnotationPopoverEntry(annotation));
+    });
+    popover.addEventListener("pointerenter", () => {
+      window.clearTimeout(annotationPopoverHideTimer);
+    });
+    popover.addEventListener("pointerleave", () => {
+      scheduleAnnotationPopoverHide(anchor);
+    });
+
+    document.body.append(popover);
+    activeAnnotationAnchor = anchor;
+    activeAnnotationPopover = popover;
+    anchor.setAttribute("aria-describedby", popover.id);
+    anchor.setAttribute("aria-expanded", "true");
+    ensureAnnotationPopoverListeners();
+    positionAnnotationPopover(anchor, popover);
+  }
+
+  function createAnnotationPopoverEntry(annotation) {
+    const entry = document.createElement("div");
+    entry.className = "python-runner__annotation-entry";
+
+    const marker = document.createElement("span");
+    marker.className = "python-runner__annotation-number";
+    marker.textContent = String(annotation.id);
+    marker.setAttribute("aria-hidden", "true");
+
+    const body = document.createElement("div");
+    body.className = "python-runner__annotation-body";
+    body.innerHTML = annotation.html;
+
+    entry.append(marker, body);
+    return entry;
+  }
+
+  function scheduleAnnotationPopoverHide(anchor) {
+    window.clearTimeout(annotationPopoverHideTimer);
+    annotationPopoverHideTimer = window.setTimeout(() => {
+      if (document.activeElement === anchor) {
+        return;
+      }
+      hideAnnotationPopover();
+    }, 90);
+  }
+
+  function hideAnnotationPopover() {
+    window.clearTimeout(annotationPopoverHideTimer);
+    if (activeAnnotationAnchor) {
+      activeAnnotationAnchor.setAttribute("aria-expanded", "false");
+      activeAnnotationAnchor.removeAttribute("aria-describedby");
+    }
+    if (activeAnnotationPopover) {
+      activeAnnotationPopover.remove();
+    }
+    activeAnnotationAnchor = undefined;
+    activeAnnotationPopover = undefined;
+  }
+
+  function ensureAnnotationPopoverListeners() {
+    if (annotationPopoverListenersInstalled) {
+      return;
+    }
+    window.addEventListener("scroll", positionActiveAnnotationPopover, true);
+    window.addEventListener("resize", positionActiveAnnotationPopover);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        hideAnnotationPopover();
+      }
+    });
+    annotationPopoverListenersInstalled = true;
+  }
+
+  function positionActiveAnnotationPopover() {
+    if (!activeAnnotationAnchor || !activeAnnotationPopover) {
+      return;
+    }
+    if (!activeAnnotationAnchor.isConnected) {
+      hideAnnotationPopover();
+      return;
+    }
+    positionAnnotationPopover(activeAnnotationAnchor, activeAnnotationPopover);
+  }
+
+  function positionAnnotationPopover(anchor, popover) {
+    const lineElement = anchor.closest(".cm-gutterElement") || anchor;
+    const lineRect = lineElement.getBoundingClientRect();
+    const margin = 8;
+    const gap = 8;
+
+    popover.style.left = "0px";
+    popover.style.top = "0px";
+    const popoverRect = popover.getBoundingClientRect();
+    const maxLeft = Math.max(margin, window.innerWidth - popoverRect.width - margin);
+    const left = Math.min(maxLeft, Math.max(margin, lineRect.right + gap));
+
+    let placement = "above";
+    let top = lineRect.top - popoverRect.height - gap;
+    if (top < margin) {
+      placement = "below";
+      top = lineRect.bottom + gap;
+    }
+    if (top + popoverRect.height > window.innerHeight - margin) {
+      const aboveTop = lineRect.top - popoverRect.height - gap;
+      if (aboveTop >= margin) {
+        placement = "above";
+        top = aboveTop;
+      } else {
+        top = Math.max(
+          margin,
+          Math.min(top, window.innerHeight - popoverRect.height - margin),
+        );
+      }
+    }
+
+    popover.dataset.placement = placement;
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
   }
 
   function createDiagnosticTools(EditorView, Decoration, StateEffect, StateField) {
@@ -1389,6 +1680,112 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
     return Math.max(min, Math.min(max, integer));
   }
 
+  function firstCommentIndex(lineText) {
+    return ["#", "//", "/*"]
+      .map((delimiter) => lineText.indexOf(delimiter))
+      .filter((index) => index >= 0)
+      .reduce((lowest, index) => Math.min(lowest, index), Number.POSITIVE_INFINITY);
+  }
+
+  function annotationIdsForLine(lineText) {
+    const commentIndex = firstCommentIndex(lineText);
+    if (!Number.isFinite(commentIndex)) {
+      return [];
+    }
+
+    const ids = [];
+    const markerPattern = /\(([A-Za-z0-9]+)\)!?/g;
+    const commentText = lineText.slice(commentIndex);
+    let match = markerPattern.exec(commentText);
+    while (match) {
+      const id = String(match[1]).trim();
+      if (id) {
+        ids.push(id);
+      }
+      match = markerPattern.exec(commentText);
+    }
+    return ids;
+  }
+
+  function annotationIdsInSource(source) {
+    const ids = new Set();
+    String(source)
+      .split("\n")
+      .forEach((line) => {
+        annotationIdsForLine(line).forEach((id) => ids.add(id));
+      });
+    return ids;
+  }
+
+  function collectRunnerAnnotations(widget, source) {
+    const markerIds = annotationIdsInSource(source);
+    if (!markerIds.size) {
+      return { annotations: [], list: undefined };
+    }
+
+    const list = widget.nextElementSibling;
+    if (!(list instanceof HTMLOListElement)) {
+      return { annotations: [], list: undefined };
+    }
+
+    const start = Number.parseInt(list.getAttribute("start") || "1", 10);
+    let index = Number.isNaN(start) ? 1 : start;
+    const annotations = [];
+    Array.from(list.children).forEach((child) => {
+      if (!(child instanceof HTMLLIElement)) {
+        return;
+      }
+      annotations.push({
+        html: child.innerHTML,
+        id: annotationListId(list, index),
+      });
+      index += 1;
+    });
+
+    if (!annotations.some((annotation) => markerIds.has(annotation.id))) {
+      return { annotations: [], list: undefined };
+    }
+
+    return { annotations, list };
+  }
+
+  function annotationListId(list, index) {
+    const type = list.getAttribute("type") || "1";
+    if (type === "A" || type === "a") {
+      const label = alphabeticListLabel(index);
+      return type === "a" ? label.toLowerCase() : label;
+    }
+    return String(index);
+  }
+
+  function alphabeticListLabel(index) {
+    let value = Math.max(1, Number.parseInt(index, 10) || 1);
+    let label = "";
+    while (value > 0) {
+      value -= 1;
+      label = String.fromCharCode(65 + (value % 26)) + label;
+      value = Math.floor(value / 26);
+    }
+    return label;
+  }
+
+  function stripAnnotationMarkers(source) {
+    return String(source)
+      .split("\n")
+      .map((line) => {
+        const commentIndex = firstCommentIndex(line);
+        if (!Number.isFinite(commentIndex)) {
+          return line;
+        }
+        const commentText = line.slice(commentIndex);
+        if (!/\([A-Za-z0-9]+\)!?/.test(commentText)) {
+          return line;
+        }
+        return line.slice(0, commentIndex).trimEnd();
+      })
+      .join("\n");
+  }
+
   function runnerIsEditable(widget) {
     return widget.getAttribute("data-runner-editable") !== "false";
   }
@@ -1424,6 +1821,10 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
       return widget.pythonRunnerEditor.state.doc.toString();
     }
     return widget.querySelector(".python-runner__code code").textContent;
+  }
+
+  function getRunnableSource(widget) {
+    return stripAnnotationMarkers(getSource(widget));
   }
 
   function sourceImportsModule(source, moduleName) {
@@ -1493,12 +1894,15 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
   async function installEditor(widget) {
     const codeBlock = widget.querySelector(".python-runner__code");
     const codeElement = codeBlock.querySelector("code");
+    const source = codeElement.textContent;
+    const annotationState = collectRunnerAnnotations(widget, source);
     const editorHost = document.createElement("div");
     editorHost.className = "python-runner__editor";
     codeBlock.insertAdjacentElement("afterend", editorHost);
 
     try {
       const {
+        createAnnotationGutter,
         EditorState,
         EditorView,
         createLineHighlightField,
@@ -1521,7 +1925,13 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         languageExtension,
         syntaxHighlighting(highlightStyle, { fallback: true }),
         diagnosticField,
+        createAnnotationGutter(annotationState.annotations),
         createLineHighlightField(parseLineHighlights(widget.dataset.runnerHighlightLines)),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            hideAnnotationPopover();
+          }
+        }),
         EditorView.lineWrapping,
         EditorView.editable.of(isEditable),
         EditorView.theme({
@@ -1557,7 +1967,7 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
 
       widget.pythonRunnerDiagnosticsEffect = setDiagnosticsEffect;
       widget.pythonRunnerEditor = new EditorView({
-        doc: codeElement.textContent,
+        doc: source,
         parent: editorHost,
         extensions,
       });
@@ -1565,6 +1975,10 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         setEditorDiagnostics(widget, widget.pythonRunnerDiagnostics);
       }
       codeBlock.hidden = true;
+      if (annotationState.list) {
+        annotationState.list.hidden = true;
+        annotationState.list.setAttribute("data-python-runner-annotations", "");
+      }
     } catch (error) {
       editorHost.remove();
       console.warn("CodeMirror failed to load; using static code fallback.", error);
@@ -2428,7 +2842,7 @@ except Exception as __markdown_runner_error:
   async function runC(widget) {
     const button = widget.querySelector(".python-runner__run");
     const output = widget.querySelector(".python-runner__output");
-    const code = getSource(widget);
+    const code = getRunnableSource(widget);
 
     button.disabled = true;
     setEditorDiagnostics(widget, []);
@@ -2731,7 +3145,7 @@ self.onmessage = async (event) => {
   async function runCTerminal(widget) {
     const button = widget.querySelector(".python-runner__run");
     const output = widget.querySelector(".python-runner__output");
-    const code = getSource(widget);
+    const code = getRunnableSource(widget);
 
     stopCTerminalRun(widget);
     setEditorDiagnostics(widget, []);
@@ -2860,7 +3274,7 @@ self.onmessage = async (event) => {
   async function runPython(widget) {
     const button = widget.querySelector(".python-runner__run");
     const output = widget.querySelector(".python-runner__output");
-    const code = getSource(widget);
+    const code = getRunnableSource(widget);
     const isGame = isPygameGameRunner(widget);
     const needsCanvasModule = runnerUsesCanvasModule(widget);
     const needsPygameModule = runnerUsesPygameModule(widget);
