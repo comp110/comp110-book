@@ -193,7 +193,9 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
                 """
             )
             assert "# (1)" not in first_editor_source
+            assert "# (2)" not in first_editor_source
             assert first_editor_source.startswith("def add_tax(price: float, tax_rate: float) -> float:\n")
+            assert "total: float = add_tax(20.00, 0.075)\n" in first_editor_source
 
             expect(first_runner.locator(".python-runner__annotation-gutter")).to_have_count(1)
             expect(page.locator("[data-python-runner]").nth(1).locator(".python-runner__annotation-gutter")).to_have_count(0)
@@ -229,7 +231,8 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
                   const list = document.querySelector(".python-runner__annotation-list");
                   const item = list.querySelector("li");
                   const gutters = runner.querySelector(".cm-gutters");
-                  const bodyStyle = getComputedStyle(document.querySelector(".md-typeset"));
+                  const content = heading.closest(".md-typeset");
+                  const bodyStyle = getComputedStyle(content);
                   const headingStyle = getComputedStyle(heading);
                   const listStyle = getComputedStyle(list);
                   const itemStyle = getComputedStyle(item);
@@ -279,7 +282,7 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
                   .contains("python-runner__annotation-note-highlight")
                 """
             )
-            annotation_list.locator("li").hover()
+            annotation_list.locator("li").first.hover()
             assert page.evaluate(
                 """
                 () => document
