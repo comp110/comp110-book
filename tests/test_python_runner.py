@@ -151,6 +151,10 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
         cwd=ROOT,
         check=True,
     )
+    about_html = (ROOT / "site" / "about" / "index.html").read_text(encoding="utf-8")
+    assert 'src="../javascripts/python-runner-loader.js"' in about_html
+    assert 'src="../javascripts/python-runner.js"' not in about_html
+    assert 'src="../javascripts/python-diagram-runner.js"' not in about_html
 
     server, base_url = serve_site()
     try:
@@ -459,7 +463,7 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
             expect(readonly_runner.locator(".python-runner__line-highlight")).to_have_count(2)
 
             page.locator(".cm-editor").first.click()
-            page.keyboard.press("Control+A")
+            page.keyboard.press("Meta+A" if sys.platform == "darwin" else "Control+A")
             page.keyboard.type('print("edited in codemirror")')
 
             editor_text = page.evaluate(
@@ -636,6 +640,33 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
                 "deterministic pygame demo ready",
                 timeout=60_000,
             )
+            frame_hot_path = page.evaluate(
+                """
+                () => {
+                  const widget = document.querySelector("[data-python-runner]");
+                  const originalQuerySelectorAll = document.querySelectorAll;
+                  let runnerLookups = 0;
+                  document.querySelectorAll = function (selector) {
+                    if (selector === "[data-python-runner-id]") {
+                      runnerLookups += 1;
+                    }
+                    return originalQuerySelectorAll.call(this, selector);
+                  };
+
+                  const result = widget.pythonRunnerGameRuntime.stepGame(
+                    widget.dataset.pythonRunnerId,
+                    1 / 60,
+                  );
+                  const usedFastResult = result == null;
+                  if (result && typeof result.destroy === "function") {
+                    result.destroy();
+                  }
+                  document.querySelectorAll = originalQuerySelectorAll;
+                  return { runnerLookups, usedFastResult };
+                }
+                """
+            )
+            assert frame_hot_path == {"runnerLookups": 0, "usedFastResult": True}
 
             def red_bounds() -> dict[str, int]:
                 return page.evaluate(
@@ -1117,7 +1148,7 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                   const state = document
                     .querySelector("[data-python-diagram-runner]")
                     .pythonDiagramRunner;
-                  return state.stepIndex === -1 && state.trace.length > 0 && state.dirty === false;
+                  return state.stepIndex === -1 && state.trace.length === 0 && state.dirty === true;
                 }
                 """,
             ) is True
@@ -1195,10 +1226,42 @@ def test_c_runner_examples_compile_run_and_report_errors() -> None:
             )
             assert first_c_text == first_c_source
 
+            page.evaluate(
+                """
+                () => {
+                  const originalFetch = window.fetch;
+                  window.__cToolchainFetchCount = 0;
+                  window.__restoreRunnerFetch = () => {
+                    window.fetch = originalFetch;
+                  };
+                  window.fetch = (...args) => {
+                    const url = String(args[0]);
+                    if (url.endsWith("/clang.wasm") || url.endsWith("/wasm-ld.wasm")) {
+                      window.__cToolchainFetchCount += 1;
+                    }
+                    return originalFetch(...args);
+                  };
+                }
+                """
+            )
             page.locator(".python-runner__run").nth(0).click()
             first_output = page.locator(".python-runner__output").nth(0)
             expect(first_output).to_contain_text("1 squared is 1", timeout=120_000)
             expect(first_output).to_contain_text("4 squared is 16", timeout=120_000)
+            first_compile_fetches = page.evaluate("window.__cToolchainFetchCount")
+            assert first_compile_fetches >= 2
+
+            page.evaluate(
+                """
+                () => {
+                  document.querySelectorAll(".python-runner__output")[0].textContent = "";
+                }
+                """
+            )
+            page.locator(".python-runner__run").nth(0).click()
+            expect(first_output).to_contain_text("4 squared is 16", timeout=120_000)
+            assert page.evaluate("window.__cToolchainFetchCount") == first_compile_fetches
+            page.evaluate("window.__restoreRunnerFetch()")
 
             page.locator(".python-runner__stdin").nth(1).fill("Maya 3\n")
             page.locator(".python-runner__run").nth(1).click()

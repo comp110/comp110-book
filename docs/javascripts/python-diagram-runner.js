@@ -71,7 +71,8 @@
       state.trace = [];
       state.stepIndex = -1;
       clearBreakpoints(widget);
-      resetRunner(widget, { showOutput: false });
+      hideOutput(widget);
+      renderCurrentStep(widget);
     };
 
     widget.pythonDiagramRunner = {
@@ -852,25 +853,26 @@
     const hasTrace = state.trace.length > 0;
     const atEnd = hasTrace && state.stepIndex >= state.trace.length - 1;
     const canAdvance = hasTrace && !atEnd;
+    const canBuildOrAdvance = state.dirty || canAdvance;
     const playbackRunning = isPlaybackRunning(state);
 
     if (runBreakpointButton) {
       runBreakpointButton.disabled = !canAdvance || !state.breakpoints.size;
     }
     if (playButton) {
-      playButton.disabled = !hasTrace || (atEnd && !playbackRunning);
+      playButton.disabled = (!hasTrace && !state.dirty) || (atEnd && !playbackRunning);
     }
     if (runButton) {
-      runButton.disabled = !canAdvance;
+      runButton.disabled = !canBuildOrAdvance;
     }
     if (stepBackButton) {
       stepBackButton.disabled = !hasTrace || state.stepIndex < 0;
     }
     if (stepIntoButton) {
-      stepIntoButton.disabled = !canAdvance;
+      stepIntoButton.disabled = !canBuildOrAdvance;
     }
     if (stepOverButton) {
-      stepOverButton.disabled = !canAdvance;
+      stepOverButton.disabled = !canBuildOrAdvance;
     }
     if (stepOutButton) {
       stepOutButton.disabled = atEnd || !current || (current.callDepth || 0) <= 0;

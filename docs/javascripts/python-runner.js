@@ -831,8 +831,14 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
   let pygameRuntimePromise;
   let mypyPromise;
   let dependencyPreloadChain = Promise.resolve();
+  let runnerPreloadObserver;
   let nextRunnerId = 0;
+  const canvasStates = new Map();
+  const cCompilationCache = new Map();
   const gameStates = new Map();
+  const pythonSyntaxCache = new Map();
+  const pythonTypeCheckCache = new Map();
+  const runnerWidgets = new Map();
   const capturedGameKeys = new Set([
     "ArrowDown",
     "ArrowLeft",
@@ -855,20 +861,62 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
     return typeof value === "string" && value ? value : fallback;
   }
 
+  function cachedAsync(cache, key, createValue, limit = 16) {
+    if (cache.has(key)) {
+      const cached = cache.get(key);
+      cache.delete(key);
+      cache.set(key, cached);
+      return cached;
+    }
+
+    const promise = Promise.resolve()
+      .then(createValue)
+      .catch((error) => {
+        if (cache.get(key) === promise) {
+          cache.delete(key);
+        }
+        throw error;
+      });
+    cache.set(key, promise);
+    while (cache.size > limit) {
+      cache.delete(cache.keys().next().value);
+    }
+    return promise;
+  }
+
   function ensureRunnerId(widget) {
     if (!widget.dataset.pythonRunnerId) {
       nextRunnerId += 1;
       widget.dataset.pythonRunnerId = `python-runner-${nextRunnerId}`;
     }
+    runnerWidgets.set(widget.dataset.pythonRunnerId, widget);
     return widget.dataset.pythonRunnerId;
   }
 
   function findRunnerById(runnerId) {
-    return Array.from(document.querySelectorAll("[data-python-runner-id]"))
-      .find((widget) => widget.dataset.pythonRunnerId === String(runnerId));
+    const key = String(runnerId);
+    const cached = runnerWidgets.get(key);
+    if (cached && cached.isConnected) {
+      return cached;
+    }
+    runnerWidgets.delete(key);
+
+    const widget = Array.from(document.querySelectorAll("[data-python-runner-id]"))
+      .find((candidate) => candidate.dataset.pythonRunnerId === key);
+    if (widget) {
+      runnerWidgets.set(key, widget);
+    }
+    return widget;
   }
 
   function getCanvasContext(runnerId) {
+    const key = String(runnerId);
+    const cached = canvasStates.get(key);
+    if (cached && cached.canvas.isConnected) {
+      return cached;
+    }
+    canvasStates.delete(key);
+
     const widget = findRunnerById(runnerId);
     const demo = widget ? widget.closest("[data-python-canvas-demo]") : null;
     const canvas = demo ? demo.querySelector("[data-python-runner-canvas]") : null;
@@ -881,7 +929,9 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
       throw new Error("This browser could not create a 2D canvas context.");
     }
 
-    return { canvas, context };
+    const state = { canvas, context };
+    canvasStates.set(key, state);
+    return state;
   }
 
   function getGameContext(runnerId) {
@@ -940,18 +990,22 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
   }
 
   function getGameState(runnerId) {
-    const { canvas, context } = getGameContext(runnerId);
-    let state = gameStates.get(String(runnerId));
-    if (!state || state.canvas !== canvas) {
-      state = {
-        canvas,
-        context,
-        events: [],
-        inputInstalled: false,
-        keys: new Set(),
-      };
-      gameStates.set(String(runnerId), state);
+    const key = String(runnerId);
+    let state = gameStates.get(key);
+    if (state && state.canvas.isConnected) {
+      return state;
     }
+    gameStates.delete(key);
+
+    const { canvas, context } = getGameContext(runnerId);
+    state = {
+      canvas,
+      context,
+      events: [],
+      inputInstalled: false,
+      keys: new Set(),
+    };
+    gameStates.set(key, state);
     installGameInput(runnerId, canvas, state);
     return state;
   }
@@ -2202,6 +2256,10 @@ def __python_runner_register_game(runner_id: str, source: str, filename: str) ->
 
     if not failed:
         namespace["__python_runner_filename"] = filename
+        namespace["__python_runner_stdout"] = io.StringIO()
+        namespace["__python_runner_stderr"] = io.StringIO()
+        namespace["__python_runner_stdout_redirect"] = contextlib.redirect_stdout(namespace["__python_runner_stdout"])
+        namespace["__python_runner_stderr_redirect"] = contextlib.redirect_stderr(namespace["__python_runner_stderr"])
         __python_runner_games[str(runner_id)] = namespace
     else:
         __python_runner_games.pop(str(runner_id), None)
@@ -2209,22 +2267,25 @@ def __python_runner_register_game(runner_id: str, source: str, filename: str) ->
     return __python_runner_result(stdout, stderr, failed, diagnostics)
 
 
-def __python_runner_step_game(runner_id: str, dt: float) -> tuple[str, str, bool, str]:
-    stdout = io.StringIO()
-    stderr = io.StringIO()
-    failed = False
-    diagnostics: list[dict[str, object]] = []
+def __python_runner_step_game(runner_id: str, dt: float) -> tuple[str, str, bool, str] | None:
     namespace = __python_runner_games.get(str(runner_id))
 
     if namespace is None:
-        failed = True
-        stderr.write("This pygame example is not running. Press Run to start it.\\n")
-        return __python_runner_result(stdout, stderr, failed, diagnostics)
+        return "", "This pygame example is not running. Press Run to start it.\\n", True, "[]"
+
+    stdout = namespace["__python_runner_stdout"]
+    stderr = namespace["__python_runner_stderr"]
+    stdout.seek(0)
+    stdout.truncate(0)
+    stderr.seek(0)
+    stderr.truncate(0)
+    failed = False
+    diagnostics: list[dict[str, object]] = []
 
     try:
         update = namespace["update"]
         draw = namespace["draw"]
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with namespace["__python_runner_stdout_redirect"], namespace["__python_runner_stderr_redirect"]:
             update(float(dt))
             draw()
     except Exception as error:
@@ -2237,7 +2298,11 @@ def __python_runner_step_game(runner_id: str, dt: float) -> tuple[str, str, bool
             )
         )
 
-    return __python_runner_result(stdout, stderr, failed, diagnostics)
+    stdout_value = stdout.getvalue()
+    stderr_value = stderr.getvalue()
+    if not failed and not stdout_value and not stderr_value:
+        return None
+    return stdout_value, stderr_value, failed, json.dumps(diagnostics) if diagnostics else "[]"
 
 
 def __python_runner_stop_game(runner_id: str) -> None:
@@ -2419,6 +2484,14 @@ except Exception as __markdown_runner_error:
   }
 
   function runnerResultFromPython(result) {
+    if (result === null || result === undefined) {
+      return {
+        diagnostics: [],
+        failed: false,
+        output: "",
+      };
+    }
+
     const values = result && typeof result.toJs === "function" ? result.toJs() : result;
     if (result && typeof result.destroy === "function") {
       result.destroy();
@@ -2689,6 +2762,20 @@ except Exception as __markdown_runner_error:
     };
   }
 
+  function createWasiBinaryFile(path, content) {
+    const timestamp = new Date();
+    return {
+      path,
+      content: new Uint8Array(content),
+      mode: "binary",
+      timestamps: {
+        access: timestamp,
+        change: timestamp,
+        modification: timestamp,
+      },
+    };
+  }
+
   function createStdinReader(stdin) {
     const bytes = new TextEncoder().encode(stdin || "");
     const decoder = new TextDecoder();
@@ -2887,23 +2974,30 @@ except Exception as __markdown_runner_error:
     return {
       diagnostics: [],
       failed: false,
-      fileSystem,
       output: "",
       wasmBytes: wasiFileBytes(fileSystem[cWasmFilename]),
     };
   }
 
+  function getCCompilation(code) {
+    return cachedAsync(cCompilationCache, code, () => compileC(code), 8);
+  }
+
   async function executeC(code, stdin) {
     const WASI = await getRunnoWasi();
-    const compileResult = await compileC(code);
+    const compileResult = await getCCompilation(code);
     if (compileResult.failed) {
       return compileResult;
     }
 
+    const programFileSystem = {
+      [cWasmFilename]: createWasiBinaryFile(cWasmFilename, compileResult.wasmBytes),
+    };
+
     const executionResult = await runWasiCommand(
       WASI,
       cProgramCommand(),
-      compileResult.fileSystem,
+      programFileSystem,
       stdin,
     );
     const outputParts = [executionResult.stdout, executionResult.stderr].filter(Boolean);
@@ -3244,7 +3338,7 @@ self.onmessage = async (event) => {
       widget.cTerminalRunnerTranscript = "";
       writeCTerminal(widget, "Compiling C...\n", { dim: true });
 
-      const compileResult = await compileC(code);
+      const compileResult = await getCCompilation(code);
       setEditorDiagnostics(widget, compileResult.diagnostics || []);
       if (compileResult.failed) {
         outputText(output, compileResult.output, true);
@@ -3350,6 +3444,55 @@ self.onmessage = async (event) => {
     });
   }
 
+  function triggerRunnerPreload(widget) {
+    if (!widget.isConnected || widget.pythonRunnerPreloadPromise) {
+      return;
+    }
+
+    if (runnerPreloadObserver) {
+      runnerPreloadObserver.unobserve(widget);
+    }
+    const trigger = widget.pythonRunnerPreloadTrigger;
+    if (trigger) {
+      widget.removeEventListener("focusin", trigger);
+      widget.removeEventListener("pointerenter", trigger);
+      widget.pythonRunnerPreloadTrigger = undefined;
+    }
+    queueRunnerPreload([widget]);
+  }
+
+  function scheduleRunnerPreload(widgets) {
+    const runners = widgets.filter((widget) => widget.isConnected);
+    if (!runners.length) {
+      return;
+    }
+
+    setRunnerPreloadState(runners, "waiting");
+    if (typeof IntersectionObserver === "function" && !runnerPreloadObserver) {
+      runnerPreloadObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            triggerRunnerPreload(entry.target);
+          }
+        });
+      }, { rootMargin: "320px 0px" });
+    }
+
+    runners.forEach((widget) => {
+      const trigger = () => triggerRunnerPreload(widget);
+      widget.pythonRunnerPreloadTrigger = trigger;
+      widget.addEventListener("focusin", trigger);
+      widget.addEventListener("pointerenter", trigger);
+      if (runnerPreloadObserver) {
+        runnerPreloadObserver.observe(widget);
+      } else if (typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(trigger, { timeout: 3000 });
+      } else {
+        window.setTimeout(trigger, 1000);
+      }
+    });
+  }
+
   async function runPython(widget) {
     const button = widget.querySelector(".python-runner__run");
     const output = widget.querySelector(".python-runner__output");
@@ -3366,6 +3509,7 @@ self.onmessage = async (event) => {
     outputText(output, "Loading Python...", false);
 
     try {
+      triggerRunnerPreload(widget);
       if (widget.pythonRunnerPreloadPromise) {
         await widget.pythonRunnerPreloadPromise;
       }
@@ -3373,7 +3517,12 @@ self.onmessage = async (event) => {
       const pyodide = await getPyodide();
       outputText(output, "Checking syntax...", false);
 
-      const syntaxResult = await checkSyntax(pyodide, code);
+      const syntaxResult = await cachedAsync(
+        pythonSyntaxCache,
+        code,
+        () => checkSyntax(pyodide, code),
+        24,
+      );
       if (syntaxResult.failed) {
         setEditorDiagnostics(widget, syntaxResult.diagnostics);
         outputText(output, syntaxResult.output, true);
@@ -3392,7 +3541,12 @@ self.onmessage = async (event) => {
       }
 
       outputText(output, "Type checking...", false);
-      const typeCheckResult = await typeCheckPython(pyodide, code);
+      const typeCheckResult = await cachedAsync(
+        pythonTypeCheckCache,
+        code,
+        () => typeCheckPython(pyodide, code),
+        24,
+      );
       if (typeCheckResult.failed) {
         setEditorDiagnostics(widget, typeCheckResult.diagnostics);
         outputText(output, typeCheckResult.output || "Type checking failed.", true);
@@ -3424,7 +3578,7 @@ self.onmessage = async (event) => {
       widget.querySelector(".python-runner__run")
         .addEventListener("click", () => runPython(widget));
     });
-    queueRunnerPreload(widgets);
+    scheduleRunnerPreload(widgets);
 
     const cWidgets = Array.from(
       root.querySelectorAll("[data-c-runner]:not([data-c-runner-ready])"),
