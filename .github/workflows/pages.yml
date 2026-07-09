@@ -16,6 +16,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      pages: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
