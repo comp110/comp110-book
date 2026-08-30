@@ -27,13 +27,14 @@ def _diagram_icon_button(classes: str, label: str, icon: str) -> str:
 
 
 def _diagram_play_button() -> str:
-    return (
-        '<button class="python-diagram-runner__play" type="button" '
-        'title="Play at 1.0x" aria-label="Play at 1.0x" '
-        'aria-pressed="false" data-python-diagram-play-mode="play">'
-        f'{DEBUG_ICONS["play"]}'
-        '<span class="python-diagram-runner__play-speed">1.0x</span>'
-        '</button>'
+    return "".join(
+        (
+            "<button class=\"python-diagram-runner__play\" type=\"button\" ",
+            "title=\"Play\" aria-label=\"Play\" aria-pressed=\"false\" ",
+            "data-python-diagram-play-mode=\"play\">",
+            DEBUG_ICONS["play"],
+            "</button>",
+        )
     )
 
 
@@ -356,41 +357,58 @@ def format_python_diagram_runner(
 ) -> str:
     """Render a ``python_diagram_runner`` fence as a memory-diagram stepper."""
     attrs = kwargs.get("attrs") or {}
-    title = attrs.get("title") or "Python Memory Diagram"
+    title = attrs.get("title")
+    editable_attribute = (
+        "" if _boolean_option(attrs.get("editable"), default=False)
+        else " data-runner-editable=\"false\""
+    )
     escaped_source = escape(source)
-    escaped_title = escape(str(title), quote=True)
     classes = "python-runner python-diagram-runner"
     if class_name and class_name not in {"python-runner", "python-diagram-runner"}:
         classes = f"{classes} {escape(class_name, quote=True)}"
 
+    title_markup = ""
+    if title:
+        escaped_title = escape(str(title), quote=True)
+        classes = f"{classes} python-diagram-runner--titled"
+        title_markup = (
+            "<div class=\"python-runner__toolbar\">"
+            f"<span class=\"python-runner__title\">{escaped_title}</span>"
+            "</div>"
+        )
+
+    controls_markup = "".join(
+        (
+            "<div class=\"python-diagram-runner__controls\">",
+            _diagram_icon_button("python-diagram-runner__reset", "Reset", DEBUG_ICONS["reset"]),
+            _diagram_icon_button("python-diagram-runner__step-back", "Step Back", DEBUG_ICONS["step_back"]),
+            _diagram_icon_button("python-diagram-runner__run-breakpoint", "Run to Breakpoint", DEBUG_ICONS["run_breakpoint"]),
+            _diagram_icon_button("python-diagram-runner__step python-diagram-runner__step-into", "Step Into", DEBUG_ICONS["step_into"]),
+            _diagram_icon_button("python-diagram-runner__step-over", "Step Over", DEBUG_ICONS["step_over"]),
+            _diagram_icon_button("python-diagram-runner__step-out", "Step Out", DEBUG_ICONS["step_out"]),
+            _diagram_play_button(),
+            _diagram_icon_button("python-diagram-runner__run", "Run to End", DEBUG_ICONS["run"]),
+            _diagram_icon_button("python-diagram-runner__fullscreen", "Full Screen", DEBUG_ICONS["fullscreen"]),
+            "</div>",
+        )
+    )
+
     return (
-        f'<div class="{classes}" data-python-diagram-runner>'
-        '<div class="python-runner__toolbar">'
-        f'<span class="python-runner__title">{escaped_title}</span>'
-        '<div class="python-diagram-runner__controls">'
-        f'{_diagram_icon_button("python-diagram-runner__reset", "Reset", DEBUG_ICONS["reset"])}'
-        f'{_diagram_icon_button("python-diagram-runner__step-back", "Step Back", DEBUG_ICONS["step_back"])}'
-        f'{_diagram_icon_button("python-diagram-runner__run-breakpoint", "Run to Breakpoint", DEBUG_ICONS["run_breakpoint"])}'
-        f'{_diagram_icon_button("python-diagram-runner__step python-diagram-runner__step-into", "Step Into", DEBUG_ICONS["step_into"])}'
-        f'{_diagram_icon_button("python-diagram-runner__step-over", "Step Over", DEBUG_ICONS["step_over"])}'
-        f'{_diagram_icon_button("python-diagram-runner__step-out", "Step Out", DEBUG_ICONS["step_out"])}'
-        f'{_diagram_play_button()}'
-        f'{_diagram_icon_button("python-diagram-runner__run", "Run to End", DEBUG_ICONS["run"])}'
-        f'{_diagram_icon_button("python-diagram-runner__fullscreen", "Full Screen", DEBUG_ICONS["fullscreen"])}'
-        "</div>"
-        "</div>"
-        '<pre class="python-runner__code"><code class="language-python">'
+        f"<div class=\"{classes}\" data-python-diagram-runner{editable_attribute}>"
+        f"{title_markup}"
+        "<pre class=\"python-runner__code\"><code class=\"language-python\">"
         f"{escaped_source}</code></pre>"
-        '<div class="python-diagram-runner__current-step" '
-        'data-python-diagram-current-step aria-live="polite"></div>'
-        '<div class="python-diagram-runner__workspace">'
-        '<canvas class="python-diagram-runner__canvas" '
-        'data-python-diagram-canvas width="1080" height="640" '
-        'aria-label="Python memory diagram canvas">'
+        f"{controls_markup}"
+        "<div class=\"python-diagram-runner__current-step\" "
+        "data-python-diagram-current-step aria-live=\"polite\"></div>"
+        "<div class=\"python-diagram-runner__workspace\">"
+        "<canvas class=\"python-diagram-runner__canvas\" "
+        "data-python-diagram-canvas width=\"1080\" height=\"640\" "
+        "aria-label=\"Python memory diagram canvas\">"
         "Your browser does not support the canvas element."
         "</canvas>"
         "</div>"
-        '<pre class="python-runner__output" aria-live="polite" hidden></pre>'
+        "<pre class=\"python-runner__output\" aria-live=\"polite\" hidden></pre>"
         "</div>"
     )
 

@@ -7,7 +7,7 @@ description: Step through a small Python subset while a COMP 110 memory diagram 
 
 This runner follows the Memory Diagram Rules handout for small Python examples with comments, docstrings, function definitions, assignments, `if`/`elif`/`else`, `while`, function calls, `return`, `print`, name resolution, comparisons, and arithmetic expressions.
 
-```python_diagram_runner
+```python_diagram_runner { editable=true }
 # Edit this example, then step through the diagram.
 
 def square(value: int) -> int:

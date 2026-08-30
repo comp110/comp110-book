@@ -811,6 +811,7 @@ def bounce_circle_off_rect(body: CircleBody, rect: RectLike, bounce: float = 0.9
 def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ...
 `;
   const codeMirrorUrls = {
+    commands: "https://esm.sh/@codemirror/commands@6",
     highlight: "https://esm.sh/@lezer/highlight@1",
     language: "https://esm.sh/@codemirror/language@6",
     state: "https://esm.sh/@codemirror/state@6",
@@ -1246,13 +1247,14 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
   async function getCodeMirror() {
     if (!codeMirrorPromise) {
       codeMirrorPromise = Promise.all([
+        import(codeMirrorUrls.commands),
         import(codeMirrorUrls.highlight),
         import(codeMirrorUrls.language),
         import(codeMirrorUrls.state),
         import(codeMirrorUrls.view),
         import(codeMirrorUrls.python),
         import(codeMirrorUrls.cpp),
-      ]).then(([highlight, language, state, view, pythonLanguage, cppLanguage]) => ({
+      ]).then(([commands, highlight, language, state, view, pythonLanguage, cppLanguage]) => ({
         createAnnotationGutter: (annotations) => createAnnotationGutter(
           view.GutterMarker,
           view.gutter,
@@ -1268,6 +1270,9 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
           highlightLines,
         ),
         highlightStyle: createHighlightStyle(language.HighlightStyle, highlight.tags),
+        indentUnit: language.indentUnit,
+        indentWithTab: commands.indentWithTab,
+        keymap: view.keymap,
         cpp: cppLanguage.cpp,
         lineNumbers: view.lineNumbers,
         python: pythonLanguage.python,
@@ -2045,6 +2050,9 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         diagnosticField,
         cpp,
         highlightStyle,
+        indentUnit,
+        indentWithTab,
+        keymap,
         lineNumbers,
         python,
         setDiagnosticsEffect,
@@ -2058,6 +2066,8 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
       const isEditable = runnerIsEditable(widget);
       const extensions = [
         lineNumbers(),
+        indentUnit.of("    "),
+        keymap.of([indentWithTab]),
         languageExtension,
         syntaxHighlighting(highlightStyle, { fallback: true }),
         diagnosticField,

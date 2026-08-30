@@ -3,15 +3,18 @@
   const canvasBaseHeight = 640;
   const maxTraceSteps = 280;
   const bindingRowHeight = 30;
+  const bindingValueGap = 9;
   const frameMetaRowHeight = 26;
-  const playbackSpeeds = [1, 1.5, 2];
+  const playbackIntervalMs = 1000;
   const playbackIcons = {
     pause: '<path d="M8 5v14"></path><path d="M16 5v14"></path>',
     play: '<polygon points="7.5 5.5 17 12 7.5 18.5 7.5 5.5" fill="currentColor" stroke="none"></polygon>',
   };
   const identifierPattern = /^[A-Za-z_]\w*$/;
-  const supportedTypes = new Set(["int", "float", "str", "bool"]);
+  const supportedTypes = new Set(["int", "float", "str", "bool", "None"]);
+  const typeConstructorNames = new Set(["int", "str", "bool", "float"]);
   const codeMirrorUrls = {
+    commands: "https://esm.sh/@codemirror/commands@6",
     highlight: "https://esm.sh/@lezer/highlight@1",
     language: "https://esm.sh/@codemirror/language@6",
     state: "https://esm.sh/@codemirror/state@6",
@@ -60,30 +63,33 @@
       return;
     }
 
-    const source = createSourceController(codeElement.textContent.replace(/\n$/, ""));
+    const isEditable = widget.getAttribute("data-runner-editable") !== "false";
+    const source = createSourceController(codeElement.textContent.replace(/\n$/, ""), isEditable);
     codeBlock.insertAdjacentElement("afterend", source.element);
     codeBlock.hidden = true;
 
     const handleSourceChange = () => {
       const state = widget.pythonDiagramRunner;
       stopPlayback(widget, { render: false });
+      state.buildError = null;
       state.dirty = true;
       state.trace = [];
       state.stepIndex = -1;
       clearBreakpoints(widget);
       hideOutput(widget);
-      renderCurrentStep(widget);
+      renderCurrentStep(widget, { preserveSourceSelection: true });
     };
 
     widget.pythonDiagramRunner = {
       breakpointEffect: null,
       breakpoints: new Set(),
+      buildError: null,
       dirty: true,
+      editable: isEditable,
       editor: null,
       fallbackFullscreen: false,
       handleSourceChange,
       lastSource: "",
-      playbackSpeedIndex: -1,
       playbackTimerId: null,
       source,
       stepIndex: -1,
@@ -143,9 +149,10 @@
     });
   }
 
-  function createSourceController(initialValue) {
+  function createSourceController(initialValue, isEditable) {
     const textarea = document.createElement("textarea");
     textarea.className = "python-diagram-runner__source";
+    textarea.readOnly = !isEditable;
     textarea.spellcheck = false;
     textarea.value = initialValue;
 
@@ -174,6 +181,17 @@
         } else {
           textarea.value = value;
           changeListener();
+        }
+      },
+      focus() {
+        if (this.view) {
+          this.view.focus();
+          return;
+        }
+        try {
+          textarea.focus({ preventScroll: true });
+        } catch (error) {
+          // Some mobile browsers do not allow focus before the textarea is visible.
         }
       },
       clearSelection() {
@@ -211,13 +229,18 @@
 
     try {
       const {
+        EditorState,
         EditorView,
         GutterMarker,
+        drawSelection,
         RangeSet,
         StateEffect,
         StateField,
         gutter,
         highlightStyle,
+        indentUnit,
+        indentWithTab,
+        keymap,
         lineNumbers,
         python,
         syntaxHighlighting,
@@ -237,6 +260,11 @@
         extensions: [
           breakpointTools.extension,
           lineNumbers(),
+          EditorState.readOnly.of(!runnerState.editable),
+          EditorView.contentAttributes.of({ "aria-readonly": runnerState.editable ? "false" : "true" }),
+          drawSelection(),
+          indentUnit.of("    "),
+          keymap.of([indentWithTab]),
           python(),
           syntaxHighlighting(highlightStyle, { fallback: true }),
           EditorView.lineWrapping,
@@ -266,6 +294,9 @@
               fontFamily: "var(--md-code-font, monospace)",
               lineHeight: "1.5",
             },
+            "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+              backgroundColor: "rgba(2, 132, 199, 0.28)",
+            },
             "&.cm-focused": {
               outline: "2px solid var(--md-accent-fg-color)",
               outlineOffset: "-2px",
@@ -286,19 +317,25 @@
   async function getCodeMirror() {
     if (!codeMirrorPromise) {
       codeMirrorPromise = Promise.all([
+        import(codeMirrorUrls.commands),
         import(codeMirrorUrls.highlight),
         import(codeMirrorUrls.language),
         import(codeMirrorUrls.state),
         import(codeMirrorUrls.view),
         import(codeMirrorUrls.python),
-      ]).then(([highlight, language, state, view, pythonLanguage]) => ({
+      ]).then(([commands, highlight, language, state, view, pythonLanguage]) => ({
+        EditorState: state.EditorState,
         EditorView: view.EditorView,
+        drawSelection: view.drawSelection,
         GutterMarker: view.GutterMarker,
         RangeSet: state.RangeSet,
         StateEffect: state.StateEffect,
         StateField: state.StateField,
         gutter: view.gutter,
         highlightStyle: createHighlightStyle(language.HighlightStyle, highlight.tags),
+        indentUnit: language.indentUnit,
+        indentWithTab: commands.indentWithTab,
+        keymap: view.keymap,
         lineNumbers: view.lineNumbers,
         python: pythonLanguage.python,
         syntaxHighlighting: language.syntaxHighlighting,
@@ -416,10 +453,6 @@
     return Boolean(state && state.playbackTimerId !== null);
   }
 
-  function formatPlaybackSpeed(speed) {
-    return `${speed.toFixed(1)}x`;
-  }
-
   function updatePlaybackButton(widget) {
     const state = getRunnerState(widget);
     const playButton = widget.querySelector(".python-diagram-runner__play");
@@ -428,26 +461,11 @@
     }
 
     const playing = isPlaybackRunning(state);
-    const nextSpeed = playing
-      ? playbackSpeeds[state.playbackSpeedIndex + 1]
-      : playbackSpeeds[0];
-
+    const label = playing ? "Pause" : "Play";
     playButton.setAttribute("aria-pressed", playing ? "true" : "false");
-    if (nextSpeed) {
-      setPlaybackButtonIcon(playButton, "play");
-      setPlaybackButtonSpeed(playButton, formatPlaybackSpeed(nextSpeed));
-      const label = playing
-        ? `Set playback speed to ${formatPlaybackSpeed(nextSpeed)}`
-        : `Play at ${formatPlaybackSpeed(nextSpeed)}`;
-      playButton.setAttribute("aria-label", label);
-      playButton.setAttribute("title", label);
-      return;
-    }
-
-    setPlaybackButtonIcon(playButton, "pause");
-    setPlaybackButtonSpeed(playButton, "");
-    playButton.setAttribute("aria-label", "Pause playback");
-    playButton.setAttribute("title", "Pause playback");
+    playButton.setAttribute("aria-label", label);
+    playButton.setAttribute("title", label);
+    setPlaybackButtonIcon(playButton, playing ? "pause" : "play");
   }
 
   function setPlaybackButtonIcon(playButton, mode) {
@@ -461,30 +479,13 @@
     playButton.dataset.pythonDiagramPlayMode = mode;
   }
 
-  function setPlaybackButtonSpeed(playButton, text) {
-    const speedLabel = playButton.querySelector(".python-diagram-runner__play-speed");
-    if (!speedLabel) {
-      return;
-    }
-    speedLabel.textContent = text;
-    speedLabel.hidden = !text;
-  }
-
   function togglePlayback(widget) {
     const state = getRunnerState(widget);
-    if (!isPlaybackRunning(state)) {
+    if (isPlaybackRunning(state)) {
+      stopPlayback(widget);
+    } else {
       startPlayback(widget);
-      return;
     }
-
-    if (state.playbackSpeedIndex < playbackSpeeds.length - 1) {
-      state.playbackSpeedIndex += 1;
-      schedulePlaybackTimer(widget);
-      updatePlaybackButton(widget);
-      return;
-    }
-
-    stopPlayback(widget);
   }
 
   function startPlayback(widget) {
@@ -497,7 +498,6 @@
     }
 
     hideOutput(widget);
-    state.playbackSpeedIndex = 0;
     schedulePlaybackTimer(widget);
     advancePlayback(widget);
     updatePlaybackButton(widget);
@@ -508,8 +508,7 @@
     if (state.playbackTimerId !== null) {
       window.clearInterval(state.playbackTimerId);
     }
-    const speed = playbackSpeeds[state.playbackSpeedIndex] || playbackSpeeds[0];
-    state.playbackTimerId = window.setInterval(() => advancePlayback(widget), 1000 / speed);
+    state.playbackTimerId = window.setInterval(() => advancePlayback(widget), playbackIntervalMs);
   }
 
   function advancePlayback(widget) {
@@ -555,7 +554,6 @@
       window.clearInterval(state.playbackTimerId);
     }
     state.playbackTimerId = null;
-    state.playbackSpeedIndex = -1;
     updatePlaybackButton(widget);
     if (options.render !== false) {
       renderCurrentStep(widget);
@@ -684,41 +682,38 @@
     output.textContent = text || "(no output)";
   }
 
-  function resetRunner(widget, options = {}) {
+  function resetRunner(widget) {
     const state = getRunnerState(widget);
     const canvas = widget.querySelector("[data-python-diagram-canvas]");
-    const showOutput = options.showOutput !== false;
 
     try {
       const result = buildDiagramTrace(state.source.value);
+      state.buildError = null;
       state.trace = result.trace;
       state.stepIndex = -1;
       state.lastSource = state.source.value;
       state.dirty = false;
       renderCurrentStep(widget);
-      if (result.error && showOutput) {
-        outputText(widget, result.error, true);
-      } else {
-        hideOutput(widget);
-      }
+      hideOutput(widget);
     } catch (error) {
+      state.buildError = error && error.message ? error.message : String(error);
       state.trace = [];
       state.stepIndex = -1;
-      state.dirty = true;
+      state.lastSource = state.source.value;
+      state.dirty = false;
       renderCurrentStep(widget);
       drawEmptyDiagram(canvas, "Diagram parse error");
-      if (showOutput) {
-        outputText(widget, error && error.message ? error.message : String(error), true);
-      } else {
-        hideOutput(widget);
-      }
+      hideOutput(widget);
     }
   }
 
   function ensureFreshTrace(widget) {
     const state = getRunnerState(widget);
-    if (state.dirty || state.lastSource !== state.source.value || !state.trace.length) {
+    if (state.dirty || state.lastSource !== state.source.value || (!state.trace.length && !state.buildError)) {
       resetRunner(widget);
+    }
+    if (!state.trace.length && state.buildError) {
+      outputText(widget, state.buildError, true);
     }
     return state.trace.length > 0;
   }
@@ -800,10 +795,12 @@
     const target = nextBreakpointIndex(state);
     moveToStep(widget, target);
     const current = state.trace[state.stepIndex];
-    if (current && state.breakpoints.has(current.line)) {
+    if (current && current.failed) {
+      outputText(widget, current.message, true);
+    } else if (current && state.breakpoints.has(current.line)) {
       outputText(widget, `Paused at breakpoint on line ${current.line}.`, false);
     } else {
-      outputText(widget, current && current.failed ? current.message : "No breakpoint hit; finished diagram trace.", Boolean(current && current.failed));
+      outputText(widget, "No breakpoint hit; finished diagram trace.", false);
     }
   }
 
@@ -836,9 +833,16 @@
     }
     state.stepIndex = Math.max(-1, Math.min(stepIndex, state.trace.length - 1));
     renderCurrentStep(widget);
+    const current = state.stepIndex >= 0 ? state.trace[state.stepIndex] : null;
+    const output = getOutput(widget);
+    if (current && current.failed) {
+      outputText(widget, current.message, true);
+    } else if (output && output.classList.contains("is-error")) {
+      hideOutput(widget);
+    }
   }
 
-  function renderCurrentStep(widget) {
+  function renderCurrentStep(widget, { preserveSourceSelection = false } = {}) {
     const state = getRunnerState(widget);
     const canvas = widget.querySelector("[data-python-diagram-canvas]");
     const currentStep = widget.querySelector("[data-python-diagram-current-step]");
@@ -880,12 +884,14 @@
     updatePlaybackButton(widget);
     if (!current) {
       renderCurrentStepPanel(currentStep, null, 0, state.trace.length);
-      renderDiagram(canvas, emptySnapshot("Ready"));
-      highlightSourceSpan(state.source, null);
+      renderDiagram(canvas, emptySnapshot("Ready"), { showStatus: playbackRunning });
+      if (!preserveSourceSelection) {
+        highlightSourceSpan(state.source, null);
+      }
       return;
     }
-    renderDiagram(canvas, current.snapshot);
-    highlightSourceSpan(state.source, current.highlight);
+    renderDiagram(canvas, current.snapshot, { showStatus: playbackRunning });
+    highlightSourceSpan(state.source, current.highlight, { focus: playbackRunning });
     if (playbackRunning) {
       hideCurrentStepPanel(currentStep);
       return;
@@ -894,7 +900,10 @@
     positionCurrentStepPopover(widget, currentStep, state.source, current.highlight);
   }
 
-  function highlightSourceSpan(source, highlight) {
+  function highlightSourceSpan(source, highlight, { focus = false } = {}) {
+    if (focus) {
+      source.focus();
+    }
     if (!highlight || !Number.isFinite(highlight.from) || !Number.isFinite(highlight.to)) {
       source.clearSelection();
       return;
@@ -1193,7 +1202,7 @@
 
   function validateTypeName(type, lineNumber) {
     if (!supportedTypes.has(type)) {
-      throw new DiagramError(lineNumber, `Only int, float, str, and bool annotations are supported; found ${type}.`);
+      throw new DiagramError(lineNumber, `Only int, float, str, bool, and None annotations are supported; found ${type}.`);
     }
   }
 
@@ -1424,12 +1433,18 @@
 
       const expression = parseExpression(trimmed, line.number, expressionBaseOffset(line, trimmed));
       if (isPrintCall(expression)) {
-        executePrint(state, line, expression);
+        evaluatePrintCall(state, expression);
       } else if (expression.type === "call") {
         const value = evaluateExpression(expression, state);
         addStep(state, line.number, `Evaluated function call expression to ${formatValue(value)}.`, expression.span);
       } else {
-        throw new DiagramError(line.number, `Unsupported statement: ${trimmed}`);
+        const value = evaluateExpression(expression, state);
+        addStep(
+          state,
+          line.number,
+          `Expression statement: evaluated ${formatValue(value)} and discarded the result.`,
+          expression.span,
+        );
       }
       index += 1;
     }
@@ -1637,7 +1652,6 @@
     state.heap.push({
       id: heapId,
       label: `Fn Lines ${fn.line} - ${fn.endLine}`,
-      name: fn.name,
     });
     setBinding(frame, fn.name, makeFunctionValue(fn), null);
     addStep(
@@ -1660,11 +1674,119 @@
     addStep(state, line.number, `Assigned ${assignment.name} = ${formatValue(value)} in ${getActiveFrame(state).name}.`, lineCodeSpan(line));
   }
 
-  function executePrint(state, line, expression) {
+  function evaluatePrintCall(state, expression) {
+    if (expression.keywords.length) {
+      throw new DiagramError(expression.line, "Keyword arguments are not supported for print.");
+    }
     const values = expression.args.map((arg) => evaluateExpression(arg, state));
     const text = values.map(outputValue).join(" ");
     state.output.push(text);
-    addStep(state, line.number, `Printed Output: ${text}`, expression.span);
+    addStep(state, expression.line, `Printed Output: ${text}`, expression.span);
+    return makeNoneValue();
+  }
+
+  function evaluateTypeConstructorCall(state, expression) {
+    const constructorName = expression.callee.name;
+    if (expression.keywords.length) {
+      throw new DiagramError(
+        expression.line,
+        `TypeError on Line ${expression.line}: ${constructorName}() does not accept keyword arguments.`,
+        expression.span,
+      );
+    }
+    if (expression.args.length > 1) {
+      throw new DiagramError(
+        expression.line,
+        `TypeError on Line ${expression.line}: ${constructorName}() expects at most 1 argument, got ${expression.args.length}.`,
+        expression.span,
+      );
+    }
+
+    const value = expression.args.length
+      ? evaluateExpression(expression.args[0], state)
+      : null;
+    let result;
+    if (constructorName === "int") {
+      result = convertToInt(value, expression);
+    } else if (constructorName === "float") {
+      result = convertToFloat(value, expression);
+    } else if (constructorName === "str") {
+      result = makeValue("str", value ? outputValue(value) : "");
+    } else {
+      result = makeValue("bool", value ? isTruthy(value) : false);
+    }
+
+    const argumentDisplay = value ? formatValue(value) : "";
+    addStep(
+      state,
+      expression.line,
+      `Type constructor: ${constructorName}(${argumentDisplay}) -> ${formatValue(result)}.`,
+      expression.span,
+    );
+    return result;
+  }
+
+  function convertToInt(value, expression) {
+    if (!value) {
+      return makeValue("int", 0);
+    }
+    if (value.type === "int") {
+      return makeValue("int", value.value);
+    }
+    if (value.type === "bool") {
+      return makeValue("int", value.value ? 1 : 0);
+    }
+    if (value.type === "float" && Number.isFinite(value.value)) {
+      return makeValue("int", Math.trunc(value.value));
+    }
+    if (value.type === "str") {
+      const source = value.value.trim();
+      if (/^[+-]?\d+$/.test(source)) {
+        return makeValue("int", Number.parseInt(source, 10));
+      }
+      throw new DiagramError(
+        expression.line,
+        `ValueError on Line ${expression.line}: invalid literal for int(): ${formatValue(value)}.`,
+        expression.span,
+      );
+    }
+    throw new DiagramError(
+      expression.line,
+      `TypeError on Line ${expression.line}: int() cannot convert ${value.type}.`,
+      expression.span,
+    );
+  }
+
+  function convertToFloat(value, expression) {
+    if (!value) {
+      return makeValue("float", 0);
+    }
+    if (value.type === "int" || value.type === "float") {
+      return makeValue("float", Number(value.value));
+    }
+    if (value.type === "bool") {
+      return makeValue("float", value.value ? 1 : 0);
+    }
+    if (value.type === "str") {
+      const source = value.value.trim();
+      const decimalPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+      if (decimalPattern.test(source)) {
+        const converted = Number(source);
+        if (Number.isFinite(converted)) {
+          return makeValue("float", converted);
+        }
+      }
+      throw new DiagramError(
+        expression.line,
+        `ValueError on Line ${expression.line}: could not convert string to float: ${formatValue(value)}.`,
+        expression.span,
+      );
+    }
+    throw new DiagramError(
+      expression.line,
+      `TypeError on Line ${expression.line}: float() cannot convert ${value.type}.`,
+      expression.span,
+    );
   }
 
   function executeReturn(state, line, expressionSource) {
@@ -1676,14 +1798,15 @@
       ? evaluateExpression(parseExpression(expressionSource, line.number, expressionBaseOffset(line, expressionSource)), state)
       : makeNoneValue();
     const fn = state.program.functions.get(frame.name);
+    const returnDepth = activeCallDepth(state);
+    frame.returnValue = value;
     if (fn && fn.returnType && !valueMatchesType(value, fn.returnType)) {
       throw new DiagramError(
         line.number,
-        `Type error on Line ${line.number}: ${frame.name} should return ${fn.returnType}, got ${value.type}.`,
+        `Return Type Disagreement on Line ${line.number}: ${frame.name} is annotated to return ${fn.returnType}, but the return statement produced ${value.type}.`,
+        lineCodeSpan(line),
       );
     }
-    const returnDepth = activeCallDepth(state);
-    frame.returnValue = value;
     state.activeFrameId = findPreviousOpenFrameId(state, frame.id);
     addStep(
       state,
@@ -1700,17 +1823,63 @@
     return expression.type === "call" && expression.callee.type === "name" && expression.callee.name === "print";
   }
 
-  function callFunction(state, fn, args, lineNumber, highlight = null) {
-    if (args.length !== fn.params.length) {
+  function isTypeConstructorCall(expression) {
+    return expression.type === "call"
+      && expression.callee.type === "name"
+      && typeConstructorNames.has(expression.callee.name);
+  }
+
+  function callFunction(state, fn, positionalArgs, keywordArgs, lineNumber, highlight = null) {
+    if (positionalArgs.length > fn.params.length) {
       return functionCallError(
         state,
         lineNumber,
-        `${fn.name} expects ${fn.params.length} argument(s), got ${args.length}.`,
+        `${fn.name} expects ${fn.params.length} argument(s), got ${positionalArgs.length + keywordArgs.length}.`,
         highlight,
       );
     }
+
+    const boundArgs = new Array(fn.params.length);
+    positionalArgs.forEach((value, index) => {
+      boundArgs[index] = value;
+    });
+    const parameterIndexes = new Map(fn.params.map((param, index) => [param.name, index]));
+    const seenKeywords = new Set();
+    keywordArgs.forEach((keyword) => {
+      if (!parameterIndexes.has(keyword.name)) {
+        functionCallError(
+          state,
+          lineNumber,
+          `${fn.name} got an unexpected keyword argument '${keyword.name}'.`,
+          highlight,
+        );
+      }
+      const parameterIndex = parameterIndexes.get(keyword.name);
+      if (seenKeywords.has(keyword.name) || boundArgs[parameterIndex] !== undefined) {
+        functionCallError(
+          state,
+          lineNumber,
+          `${fn.name} got multiple values for argument '${keyword.name}'.`,
+          highlight,
+        );
+      }
+      seenKeywords.add(keyword.name);
+      boundArgs[parameterIndex] = keyword.value;
+    });
+
+    const missingParams = fn.params.filter((param, index) => boundArgs[index] === undefined);
+    if (missingParams.length) {
+      const names = missingParams.map((param) => param.name).join(", ");
+      return functionCallError(
+        state,
+        lineNumber,
+        `${fn.name} is missing required argument(s): ${names}.`,
+        highlight,
+      );
+    }
+
     fn.params.forEach((param, index) => {
-      const value = args[index];
+      const value = boundArgs[index];
       if (param.type && !valueMatchesType(value, param.type)) {
         functionCallError(state, lineNumber, `${param.name} expects ${param.type}, got ${value.type}.`, highlight);
       }
@@ -1724,7 +1893,7 @@
       returnValue: null,
     };
     state.nextFrameId += 1;
-    fn.params.forEach((param, index) => setBinding(frame, param.name, args[index], param.type));
+    fn.params.forEach((param, index) => setBinding(frame, param.name, boundArgs[index], param.type));
     state.frames.push(frame);
     state.activeFrameId = frame.id;
     addStep(state, lineNumber, `Function call: established ${fn.name} frame with RA:${lineNumber} and copied argument values.`, highlight);
@@ -1738,6 +1907,13 @@
     const returnDepth = activeCallDepth(state);
     frame.returnValue = noneValue;
     state.activeFrameId = findPreviousOpenFrameId(state, frame.id);
+    if (fn.returnType && !valueMatchesType(noneValue, fn.returnType)) {
+      throw new DiagramError(
+        fn.endLine,
+        `Return Type Disagreement on Line ${fn.endLine}: ${fn.name} is annotated to return ${fn.returnType}, but reaching the end of the function implicitly returned None.`,
+        lineSpanByNumber(state, fn.endLine),
+      );
+    }
     addStep(
       state,
       fn.endLine,
@@ -1774,14 +1950,12 @@
   function setBinding(frame, name, value, declaredType) {
     const binding = frame.bindings.find((item) => item.name === name);
     if (binding) {
-      const previousDisplay = formatValue(binding.value);
-      const nextDisplay = formatValue(value);
-      binding.previousValue = previousDisplay !== nextDisplay ? binding.value : null;
+      binding.previousValues.push(binding.value);
       binding.value = value;
       binding.declaredType = declaredType || binding.declaredType;
       return;
     }
-    frame.bindings.push({ declaredType, name, previousValue: null, value });
+    frame.bindings.push({ declaredType, name, previousValues: [], value });
   }
 
   function findBinding(frame, name) {
@@ -1823,6 +1997,9 @@
   }
 
   function displayFor(type, value) {
+    if (type === "float") {
+      return Number.isFinite(value) && Number.isInteger(value) ? value.toFixed(1) : String(value);
+    }
     if (type === "str") {
       return JSON.stringify(value);
     }
@@ -1908,7 +2085,7 @@
         index += 2;
         continue;
       }
-      if ("+-*/%(),<>".includes(char)) {
+      if ("+-*/%(),<>=".includes(char)) {
         tokens.push({ end: baseOffset + index + 1, type: "operator", value: char, start: baseOffset + index });
         index += 1;
         continue;
@@ -1947,8 +2124,8 @@
       this.tokens = tokens;
     }
 
-    peek(value) {
-      const token = this.tokens[this.index];
+    peek(value, offset = 0) {
+      const token = this.tokens[Math.min(this.index + offset, this.tokens.length - 1)];
       return value === undefined ? token : token.value === value;
     }
 
@@ -2079,6 +2256,13 @@
           type: "literal",
           value: makeValue("bool", token.value === "True"),
         };
+      } else if (token.value === "None") {
+        node = {
+          line: stream.lineNumber,
+          span: { from: token.start, to: token.end },
+          type: "literal",
+          value: makeNoneValue(),
+        };
       } else {
         node = {
           line: stream.lineNumber,
@@ -2101,18 +2285,31 @@
     while (stream.peek("(")) {
       const open = stream.consume();
       const args = [];
+      const keywords = [];
       let close;
       if (stream.peek(")")) {
         close = stream.consume();
       } else {
         do {
-          args.push(parseComparison(stream));
+          const isKeyword = stream.peek().type === "identifier" && stream.peek("=", 1);
+          if (isKeyword) {
+            const name = stream.consume();
+            stream.expect("=");
+            const value = parseComparison(stream);
+            keywords.push({ name: name.value, value });
+          } else {
+            if (keywords.length) {
+              throw new DiagramError(stream.lineNumber, "Positional arguments cannot follow keyword arguments.");
+            }
+            args.push(parseComparison(stream));
+          }
         } while (stream.match(","));
         close = stream.expect(")");
       }
       node = {
         args,
         callee: node,
+        keywords,
         line: stream.lineNumber,
         span: { from: node.span.from, to: close.end || open.end },
         type: "call",
@@ -2151,18 +2348,25 @@
     }
     if (node.type === "call") {
       if (isPrintCall(node)) {
-        throw new DiagramError(node.line, "print calls are only supported as statements.");
+        return evaluatePrintCall(state, node);
+      }
+      if (isTypeConstructorCall(node)) {
+        return evaluateTypeConstructorCall(state, node);
       }
       if (node.callee.type !== "name") {
         throw new DiagramError(node.line, "Only named function calls are supported.");
       }
       const args = node.args.map((arg) => evaluateExpression(arg, state));
+      const keywords = node.keywords.map((keyword) => ({
+        name: keyword.name,
+        value: evaluateExpression(keyword.value, state),
+      }));
       const callable = resolveName(state, node.callee.name, node.line, node.callee.span);
       if (callable.type !== "function") {
         return functionCallError(state, node.line, `${node.callee.name} is not a function.`, node.span);
       }
       const fn = state.program.functions.get(callable.functionName);
-      return callFunction(state, fn, args, node.line, node.span);
+      return callFunction(state, fn, args, keywords, node.line, node.span);
     }
     throw new DiagramError(node.line || 1, "Unsupported expression.");
   }
@@ -2244,7 +2448,7 @@
         bindings: frame.bindings.map((binding) => ({
           declaredType: binding.declaredType,
           name: binding.name,
-          previousValue: binding.previousValue ? formatValue(binding.previousValue) : null,
+          previousValues: binding.previousValues.map((value) => formatValue(value)),
           value: formatValue(binding.value),
         })),
         id: frame.id,
@@ -2292,52 +2496,96 @@
     renderDiagram(canvas, emptySnapshot(message));
   }
 
-  function diagramHeightFor(snapshot) {
-    const stackHeight = stackColumnHeightFor(snapshot.frames || []);
+  function diagramHeightFor(snapshot, context) {
+    const stackHeight = stackColumnHeightFor(snapshot.frames || [], context);
     return Math.max(canvasBaseHeight, 82 + stackHeight + 30);
   }
 
-  function stackColumnHeightFor(frames) {
+  function stackColumnHeightFor(frames, context) {
     if (!frames.length) {
       return 528;
     }
-    const frameHeights = frames.map(frameHeightFor);
+    const frameHeights = frames.map((frame) => frameHeightFor(frame, context, 392));
     const gaps = Math.max(0, frameHeights.length - 1) * 14;
     return Math.max(528, 58 + frameHeights.reduce((sum, height) => sum + height, 0) + gaps + 16);
   }
 
-  function frameHeightFor(frame) {
-    const bindingRows = Math.max(1, frame.bindings.length);
+  function frameValueOffset() {
+    return 250;
+  }
+
+  function bindingValueLines(context, binding, width) {
+    const availableWidth = Math.max(1, width);
+    const previousValues = Array.isArray(binding.previousValues) ? binding.previousValues : [];
+    const entries = [
+      ...previousValues.map((value) => ({ struck: true, text: String(value) })),
+      { struck: false, text: String(binding.value) },
+    ];
+    const lines = [[]];
+    let usedWidth = 0;
+
+    context.save();
+    context.font = "600 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+    entries.forEach((entry) => {
+      const entryWidth = Math.min(Math.max(1, context.measureText(entry.text).width), availableWidth);
+      const line = lines[lines.length - 1];
+      const gap = line.length ? bindingValueGap : 0;
+      if (line.length && usedWidth + gap + entryWidth > availableWidth) {
+        lines.push([{ ...entry, offset: 0, width: entryWidth }]);
+        usedWidth = entryWidth;
+        return;
+      }
+      const offset = usedWidth + gap;
+      line.push({ ...entry, offset, width: entryWidth });
+      usedWidth = offset + entryWidth;
+    });
+    context.restore();
+    return lines;
+  }
+
+  function frameHeightFor(frame, context, width) {
+    const valueWidth = Math.max(1, width - frameValueOffset(frame) - 14);
+    const bindingRows = Math.max(
+      1,
+      frame.bindings.reduce(
+        (rows, binding) => rows + bindingValueLines(context, binding, valueWidth).length,
+        0,
+      ),
+    );
     const metaRows = (frame.returnAddress ? 1 : 0) + (frame.returnValue ? 1 : 0);
     return Math.max(96, 52 + bindingRows * bindingRowHeight + metaRows * frameMetaRowHeight);
   }
 
-  function renderDiagram(canvas, snapshot) {
+  function renderDiagram(canvas, snapshot, { showStatus = false } = {}) {
     if (!canvas) {
       return;
-    }
-    const dpr = window.devicePixelRatio || 1;
-    const diagramHeight = diagramHeightFor(snapshot);
-    if (canvas.width !== canvasWidth * dpr || canvas.height !== diagramHeight * dpr) {
-      canvas.width = canvasWidth * dpr;
-      canvas.height = diagramHeight * dpr;
-      canvas.style.aspectRatio = `${canvasWidth} / ${diagramHeight}`;
     }
     const context = canvas.getContext("2d");
     if (!context) {
       return;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    const statusSpace = showStatus ? 64 : 0;
+    const diagramHeight = diagramHeightFor(snapshot, context) - (64 - statusSpace);
+    if (canvas.width !== canvasWidth * dpr || canvas.height !== diagramHeight * dpr) {
+      canvas.width = canvasWidth * dpr;
+      canvas.height = diagramHeight * dpr;
+      canvas.style.aspectRatio = `${canvasWidth} / ${diagramHeight}`;
     }
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, canvasWidth, diagramHeight);
     context.fillStyle = "#f8fafc";
     context.fillRect(0, 0, canvasWidth, diagramHeight);
 
-    drawStatus(context, snapshot);
-    const columnHeight = diagramHeight - 112;
+    if (showStatus) {
+      drawStatus(context, snapshot);
+    }
+    const columnY = 18 + statusSpace;
+    const columnHeight = diagramHeight - (48 + statusSpace);
     const columns = {
-      stack: { x: 24, y: 82, width: 420, height: columnHeight, title: "Function Call Stack" },
-      heap: { x: 470, y: 82, width: 270, height: columnHeight, title: "Heap" },
-      output: { x: 766, y: 82, width: 290, height: columnHeight, title: "Printed Output" },
+      stack: { x: 24, y: columnY, width: 420, height: columnHeight, title: "Function Call Stack" },
+      heap: { x: 470, y: columnY, width: 270, height: columnHeight, title: "Heap" },
+      output: { x: 766, y: columnY, width: 290, height: columnHeight, title: "Printed Output" },
     };
     drawColumn(context, columns.stack);
     drawColumn(context, columns.heap);
@@ -2389,7 +2637,7 @@
   function drawFrames(context, column, frames) {
     let y = column.y + 58;
     frames.forEach((frame) => {
-      const height = frameHeightFor(frame);
+      const height = frameHeightFor(frame, context, column.width - 28);
       drawFrame(context, column.x + 14, y, column.width - 28, height, frame);
       y += height + 14;
     });
@@ -2408,27 +2656,26 @@
     context.font = "700 16px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
     context.fillText(frame.name, x + 14, y + 24, width - 28);
 
-    const dividerX = frame.name === "Globals" ? x + 14 : x + 128;
+    const dividerX = x + 128;
+    context.strokeStyle = "#cbd5e1";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(dividerX, y + 36);
+    context.lineTo(dividerX, y + height - 12);
+    context.stroke();
     if (frame.name !== "Globals") {
-      context.strokeStyle = "#cbd5e1";
-      context.lineWidth = 1;
-      context.beginPath();
-      context.moveTo(dividerX, y + 36);
-      context.lineTo(dividerX, y + height - 12);
-      context.stroke();
       drawFrameMeta(context, x + 14, y + 50, 104, frame);
     }
 
     let rowY = y + 54;
-    const valueX = frame.name === "Globals" ? x + 148 : dividerX + 122;
-    const nameX = frame.name === "Globals" ? x + 16 : dividerX + 14;
+    const valueX = x + frameValueOffset(frame);
+    const nameX = dividerX + 14;
     frame.bindings.forEach((binding) => {
       context.fillStyle = "#0f172a";
       context.font = "600 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
-      const label = binding.declaredType ? `${binding.name}: ${binding.declaredType}` : binding.name;
-      context.fillText(label, nameX, rowY, valueX - nameX - 12);
-      drawBindingValue(context, binding, valueX, rowY, x + width - valueX - 14);
-      rowY += bindingRowHeight;
+      context.fillText(binding.name, nameX, rowY, valueX - nameX - 12);
+      const valueRows = drawBindingValue(context, binding, valueX, rowY, x + width - valueX - 14);
+      rowY += Math.max(1, valueRows) * bindingRowHeight;
     });
     if (!frame.bindings.length) {
       context.fillStyle = "#64748b";
@@ -2439,28 +2686,26 @@
   }
 
   function drawBindingValue(context, binding, x, y, width) {
-    const currentValue = String(binding.value);
-    const previousValue = binding.previousValue ? String(binding.previousValue) : "";
+    const lines = bindingValueLines(context, binding, width);
     context.font = "600 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
-    if (!previousValue || previousValue === currentValue) {
-      context.fillStyle = "#1d4ed8";
-      context.fillText(currentValue, x, y, width);
-      return;
-    }
-
-    const gap = 9;
-    const previousWidth = Math.min(context.measureText(previousValue).width, Math.max(0, width * 0.46));
-    context.fillStyle = "#64748b";
-    context.fillText(previousValue, x, y, previousWidth);
-    context.strokeStyle = "#64748b";
-    context.lineWidth = 1.5;
-    context.beginPath();
-    context.moveTo(x, y - 5);
-    context.lineTo(x + previousWidth, y - 5);
-    context.stroke();
-
-    context.fillStyle = "#1d4ed8";
-    context.fillText(currentValue, x + previousWidth + gap, y, Math.max(0, width - previousWidth - gap));
+    lines.forEach((line, lineIndex) => {
+      const lineY = y + lineIndex * bindingRowHeight;
+      line.forEach((entry) => {
+        const entryX = x + entry.offset;
+        context.fillStyle = entry.struck ? "#64748b" : "#1d4ed8";
+        context.fillText(entry.text, entryX, lineY, entry.width);
+        if (!entry.struck) {
+          return;
+        }
+        context.strokeStyle = "#64748b";
+        context.lineWidth = 1.5;
+        context.beginPath();
+        context.moveTo(entryX, lineY - 5);
+        context.lineTo(entryX + entry.width, lineY - 5);
+        context.stroke();
+      });
+    });
+    return lines.length;
   }
 
   function drawFrameMeta(context, x, y, width, frame) {
@@ -2497,7 +2742,7 @@
       context.fillText(`ID:${item.id}`, column.x + 28, y + 25, column.width - 56);
       context.fillStyle = "#166534";
       context.font = "14px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
-      context.fillText(`${item.name} - ${item.label}`, column.x + 28, y + 49, column.width - 56);
+      context.fillText(item.label, column.x + 28, y + 49, column.width - 56);
       context.restore();
       y += 86;
     });
