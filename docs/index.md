@@ -1,16 +1,10 @@
 ---
-title: Home
-description: Starter page for the Nextgen static site.
+title: COMP110
+description: A function fundamentals resource for COMP 110 at UNC-Chapel Hill.
 ---
 
-# Nextgen
+# COMP110
 
-Welcome to the Nextgen site.
+This site is a learning resource for [COMP 110: Introduction to Programming](https://unc-public.courseleaf.com/courses/comp/) at UNC-Chapel Hill, an introductory course that expects no prior programming experience.
 
-This project uses [Zensical](https://zensical.org/) for static site generation and `uv` for Python dependency management.
-
-## Start here
-
-- Edit content in `docs/`.
-- Run `make serve` inside the devcontainer to preview changes.
-- Run `make build` to generate the static site in `site/`.
+[Open Function Fundamentals](function_fundamentals.md)
