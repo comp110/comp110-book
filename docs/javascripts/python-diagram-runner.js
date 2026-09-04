@@ -930,28 +930,46 @@
 
       const widgetRect = widget.getBoundingClientRect();
       const editorElement = source.host || source.element;
-      const editorRect = editorElement.getBoundingClientRect();
-      const gap = 16;
-      const margin = 10;
-      const width = currentStep.offsetWidth || 280;
-      const height = currentStep.offsetHeight || 64;
-      const anchorCenter = (anchor.left + anchor.right) / 2;
-      const minLeft = margin;
-      const maxLeft = Math.max(minLeft, widgetRect.width - width - margin);
-      const left = clampNumber(anchorCenter - widgetRect.left - width / 2, minLeft, maxLeft);
-      const canFitAbove = anchor.top - height - gap >= editorRect.top + 4;
-      const placement = canFitAbove ? "above" : "below";
-      let top = placement === "above"
-        ? anchor.top - widgetRect.top - height - gap
-        : anchor.bottom - widgetRect.top + gap;
-      const maxTop = Math.max(margin, widgetRect.height - height - margin);
-      top = clampNumber(top, margin, maxTop);
-      const pointerX = clampNumber(anchorCenter - widgetRect.left - left, 18, width - 18);
+      editorElement.style.minHeight = "";
+      currentStep.style.maxWidth = "";
+      currentStep.style.minWidth = "";
 
-      currentStep.dataset.placement = placement;
+      let editorRect = editorElement.getBoundingClientRect();
+      const editorMargin = 10;
+      const editorAvailableWidth = Math.max(1, editorRect.width - editorMargin * 2);
+      const naturalWidth = currentStep.offsetWidth || 280;
+      const sideWidthLimit = editorAvailableWidth >= 480
+        ? editorAvailableWidth * 0.48
+        : editorAvailableWidth;
+      const maxWidth = Math.min(naturalWidth, sideWidthLimit, editorAvailableWidth);
+      currentStep.style.maxWidth = `${maxWidth}px`;
+      currentStep.style.minWidth = `${Math.min(256, maxWidth)}px`;
+
+      const width = currentStep.offsetWidth || maxWidth;
+      const height = currentStep.offsetHeight || 64;
+      const requiredEditorHeight = height + editorMargin * 2;
+      if (editorRect.height < requiredEditorHeight) {
+        editorElement.style.minHeight = `${requiredEditorHeight}px`;
+        editorRect = editorElement.getBoundingClientRect();
+      }
+
+      const anchorCenterY = (anchor.top + anchor.bottom) / 2;
+      const viewportLeft = editorRect.right - width - editorMargin;
+      const minViewportTop = editorRect.top + editorMargin;
+      const maxViewportTop = editorRect.bottom - height - editorMargin;
+      const viewportTop = clampNumber(
+        anchorCenterY - height / 2,
+        minViewportTop,
+        maxViewportTop,
+      );
+      const left = viewportLeft - widgetRect.left;
+      const top = viewportTop - widgetRect.top;
+      const pointerY = clampNumber(anchorCenterY - viewportTop, 18, height - 18);
+
+      currentStep.dataset.placement = "right";
       currentStep.style.left = `${left}px`;
       currentStep.style.top = `${top}px`;
-      currentStep.style.setProperty("--python-diagram-callout-pointer-x", `${pointerX}px`);
+      currentStep.style.setProperty("--python-diagram-callout-pointer-y", `${pointerY}px`);
     });
   }
 
@@ -1018,12 +1036,19 @@
   }
 
   function hideCurrentStepPanel(currentStep) {
+    const widget = currentStep.closest("[data-python-diagram-runner]");
+    const editor = widget ? widget.querySelector(".python-diagram-runner__editor, .python-diagram-runner__source") : null;
+    if (editor) {
+      editor.style.minHeight = "";
+    }
     currentStep.hidden = true;
     currentStep.textContent = "";
     delete currentStep.dataset.placement;
     currentStep.style.left = "";
+    currentStep.style.maxWidth = "";
+    currentStep.style.minWidth = "";
     currentStep.style.top = "";
-    currentStep.style.removeProperty("--python-diagram-callout-pointer-x");
+    currentStep.style.removeProperty("--python-diagram-callout-pointer-y");
   }
 
   function parseSourceLines(source) {

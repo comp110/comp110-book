@@ -1125,21 +1125,46 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                       const widget = document.querySelector("[data-python-diagram-runner]");
                       const callout = widget.querySelector("[data-python-diagram-current-step]");
                       const controls = widget.querySelector(".python-diagram-runner__controls");
+                      const editor = widget.querySelector(".python-diagram-runner__editor");
+                      const workspace = widget.querySelector(".python-diagram-runner__workspace");
+                      const output = widget.querySelector(".python-runner__output");
                       const source = widget.pythonDiagramRunner.source;
                       const selection = source.view.state.selection.main;
                       const start = source.view.coordsAtPos(selection.from, 1);
                       const end = source.view.coordsAtPos(selection.to, -1) || start;
                       const calloutRect = callout.getBoundingClientRect();
                       const controlsRect = controls.getBoundingClientRect();
-                      const anchorCenter = (Math.min(start.left, end.left) + Math.max(start.right || start.left, end.right || end.left)) / 2;
-                      const calloutCenter = calloutRect.left + calloutRect.width / 2;
+                      const editorRect = editor.getBoundingClientRect();
+                      const workspaceRect = workspace.getBoundingClientRect();
+                      const outputRect = output.getBoundingClientRect();
+                      const overlaps = (first, second) => (
+                        first.left < second.right
+                        && first.right > second.left
+                        && first.top < second.bottom
+                        && first.bottom > second.top
+                      );
                       return {
-                        centerDelta: Math.abs(calloutCenter - anchorCenter),
-                        overlapsControls: !(calloutRect.right < controlsRect.left || calloutRect.left > controlsRect.right || calloutRect.bottom < controlsRect.top || calloutRect.top > controlsRect.bottom),
+                        insideEditor: calloutRect.left >= editorRect.left
+                          && calloutRect.right <= editorRect.right
+                          && calloutRect.top >= editorRect.top
+                          && calloutRect.bottom <= editorRect.bottom,
+                        isRightOfCode: calloutRect.left >= Math.max(start.right || start.left, end.right || end.left),
+                        overlapsControls: overlaps(calloutRect, controlsRect),
+                        overlapsOutput: !output.hidden && overlaps(calloutRect, outputRect),
+                        overlapsWorkspace: overlaps(calloutRect, workspaceRect),
                         placement: callout.dataset.placement || "",
-                        pointerX: parseFloat(getComputedStyle(callout).getPropertyValue("--python-diagram-callout-pointer-x")),
+                        pointerY: parseFloat(getComputedStyle(callout).getPropertyValue("--python-diagram-callout-pointer-y")),
                       };
                     }
+                    """
+                )
+
+            def wait_for_callout_layout() -> None:
+                page.evaluate(
+                    """
+                    () => new Promise((resolve) => requestAnimationFrame(
+                      () => requestAnimationFrame(resolve),
+                    ))
                     """
                 )
 
@@ -1297,11 +1322,15 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                   .dataset.placement)
                 """
             )
+            wait_for_callout_layout()
             geometry = callout_geometry()
-            assert geometry["placement"] in {"above", "below"}
-            assert geometry["centerDelta"] < 32
-            assert geometry["pointerX"] > 0
+            assert geometry["placement"] == "right"
+            assert geometry["insideEditor"] is True
+            assert geometry["isRightOfCode"] is True
+            assert geometry["pointerY"] > 0
             assert geometry["overlapsControls"] is False
+            assert geometry["overlapsWorkspace"] is False
+            assert geometry["overlapsOutput"] is False
             callout_colors = page.evaluate(
                 """
                 () => {
@@ -1309,9 +1338,7 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                   const pointer = getComputedStyle(callout, "::after");
                   return {
                     background: getComputedStyle(callout).backgroundColor,
-                    pointer: callout.dataset.placement === "above"
-                      ? pointer.borderTopColor
-                      : pointer.borderBottomColor,
+                    pointer: pointer.borderRightColor,
                   };
                 }
                 """,
@@ -1554,6 +1581,47 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             ]
             assert len(strike_lines) >= 5
 
+            # Keep the callout in the code editor's right-side rail at every
+            # step so it never covers controls or the memory/output workspace.
+            page.set_viewport_size({"width": 816, "height": 900})
+            replace_diagram_source(
+                'i: int = 1\n'
+                'i = i + 1\n'
+                '\n'
+                'print(i)\n'
+                'print(i == 2)\n'
+            )
+            page.locator(".python-diagram-runner__step").click()
+            compact_trace_length = page.evaluate(
+                """
+                () => document
+                  .querySelector("[data-python-diagram-runner]")
+                  .pythonDiagramRunner.trace.length
+                """,
+            )
+            compact_placements: set[str] = set()
+            for step_index in range(compact_trace_length):
+                if step_index > 0:
+                    page.locator(".python-diagram-runner__step").click()
+                expect(current_step).to_be_visible()
+                page.wait_for_function(
+                    """
+                    () => Boolean(document
+                      .querySelector("[data-python-diagram-current-step]")
+                      .dataset.placement)
+                    """
+                )
+                wait_for_callout_layout()
+                geometry = callout_geometry()
+                compact_placements.add(str(geometry["placement"]))
+                assert geometry["insideEditor"] is True
+                assert geometry["isRightOfCode"] is True
+                assert geometry["overlapsControls"] is False
+                assert geometry["overlapsWorkspace"] is False
+                assert geometry["overlapsOutput"] is False
+            assert compact_placements == {"right"}
+            page.set_viewport_size({"width": 1280, "height": 720})
+
             replace_diagram_source(
                 'def double(value: int) -> int:\n'
                 '    return value * 2\n'
@@ -1577,6 +1645,12 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             expect(diagram_output).to_have_class(re.compile(r"\bis-error\b"))
             expect(current_step).to_contain_text("Function Call Error on Line 4")
             assert selected_source() == 'double("bad")'
+            wait_for_callout_layout()
+            error_geometry = callout_geometry()
+            assert error_geometry["insideEditor"] is True
+            assert error_geometry["overlapsControls"] is False
+            assert error_geometry["overlapsWorkspace"] is False
+            assert error_geometry["overlapsOutput"] is False
 
             assert not any("CodeMirror failed" in msg for msg in messages)
             assert not any(msg.startswith("pageerror:") for msg in messages)

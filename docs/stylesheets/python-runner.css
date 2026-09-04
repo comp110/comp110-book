@@ -521,6 +521,8 @@ body.python-diagram-runner-fullscreen-open {
   gap: 0.45rem;
   justify-content: flex-start;
   padding: 0.45rem 0.7rem;
+  position: relative;
+  z-index: 9;
 }
 
 .python-diagram-runner:not(.python-diagram-runner--titled) > .python-runner__code,
@@ -704,11 +706,12 @@ body.python-diagram-runner-fullscreen-open {
 .python-diagram-runner__current-step {
   --python-diagram-callout-background: #fff8c5;
   --python-diagram-callout-border: #dfc75a;
-  --python-diagram-callout-pointer-x: 50%;
+  --python-diagram-callout-pointer-y: 50%;
   background: var(--python-diagram-callout-background);
   border: 1px solid var(--python-diagram-callout-border);
   border-radius: 8px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  box-sizing: border-box;
   color: var(--md-default-fg-color);
   display: grid;
   font-size: 0.78rem;
@@ -729,36 +732,26 @@ body.python-diagram-runner-fullscreen-open {
   display: none;
 }
 
-.python-diagram-runner__current-step::before,
-.python-diagram-runner__current-step::after {
-  border-left: 9px solid transparent;
-  border-right: 9px solid transparent;
+.python-diagram-runner__current-step[data-placement="right"]::before,
+.python-diagram-runner__current-step[data-placement="right"]::after {
+  border-bottom: 9px solid transparent;
+  border-top: 9px solid transparent;
   content: "";
   height: 0;
-  left: var(--python-diagram-callout-pointer-x);
   position: absolute;
-  transform: translateX(-50%);
+  top: var(--python-diagram-callout-pointer-y);
+  transform: translateY(-50%);
   width: 0;
 }
 
-.python-diagram-runner__current-step[data-placement="above"]::before {
-  border-top: 10px solid var(--python-diagram-callout-border);
-  bottom: -10px;
+.python-diagram-runner__current-step[data-placement="right"]::before {
+  border-right: 10px solid var(--python-diagram-callout-border);
+  left: -10px;
 }
 
-.python-diagram-runner__current-step[data-placement="above"]::after {
-  border-top: 9px solid var(--python-diagram-callout-background);
-  bottom: -8px;
-}
-
-.python-diagram-runner__current-step[data-placement="below"]::before {
-  border-bottom: 10px solid var(--python-diagram-callout-border);
-  top: -10px;
-}
-
-.python-diagram-runner__current-step[data-placement="below"]::after {
-  border-bottom: 9px solid var(--python-diagram-callout-background);
-  top: -8px;
+.python-diagram-runner__current-step[data-placement="right"]::after {
+  border-right: 9px solid var(--python-diagram-callout-background);
+  left: -8px;
 }
 
 .python-diagram-runner__current-step-line {

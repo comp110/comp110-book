@@ -9,6 +9,7 @@ dev_addr = "0.0.0.0:8000"
 extra_css = ["stylesheets/python-runner.css"]
 extra_javascript = ["javascripts/python-runner-loader.js"]
 nav = [
+  {"Variable Fundamentals" = "variable_fundamentals.md"},
   {"Function Fundamentals" = "function_fundamentals.md"},
 ]
 
