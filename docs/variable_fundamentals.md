@@ -230,11 +230,13 @@ print(answer)
 
 The inner call to `add_one` returns `4`, and the outer call to `double` receives that value and returns `8`. The caller cares about these inputs and return values. The choice to name an intermediate value `result` is an implementation detail hidden inside each function's black box.
 
-### Local Variables Do Not Leave Their Frame
+### Local Variables Cannot Be Read from Outside Their Frame
 
-The returned value from `build_message` can be used in Globals, but the local variable named `result` cannot.
+Code outside a function call cannot read one of the call's local variables by name. If a value calculated inside a function is needed outside of the call, the function can **return** that value. The caller can then use the returned value directly or store it in a variable in the caller's frame.
 
-~~~python_diagram_runner { editable=true title="A Local Name is Not Global" }
+In this example, `result` is a local variable in the `build_message` frame. The `return` statement sends its value back to the caller, which stores that value in the global variable `message`. This does not make the local name `result` available in Globals.
+
+~~~python_diagram_runner { editable=true title="Returning a Local Value" }
 def build_message(name: str) -> str:
     result: str = "Hello, " + name
     return result
@@ -245,7 +247,7 @@ print(message)
 print(result)
 ~~~
 
-The final line produces a `NameError`. Returning the value stored in `result` lets the caller use that value; it does not make the local variable itself global.
+The first `print` succeeds because `message` is a variable in Globals. The final line tries to read the local name `result` from Globals and produces a `NameError`.
 
 ### Assignments Inside Functions are Local
 
