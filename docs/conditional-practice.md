@@ -5,7 +5,9 @@ description: Practice choosing and writing one-way, two-way, nested, multiway, a
 
 This page focuses on choosing and writing conditional control-flow structures. Use [If Statements](control_flow/if_statements.md) as the primary reference. The exercises also use previously introduced [variables](variable_fundamentals.md) and [functions](function_fundamentals.md), but their unfinished work focuses on conditionals.
 
-The runnable exercises pause when they call `input`. Enter a response below the output pane and press **Enter**. Run each exercise more than once with inputs that take different paths.
+Each runnable exercise has two steps. First, edit the source code where you see a `TODO`. Then select **Run** to test your changes. Whenever the program reaches an `input(...)` call, it pauses and shows a prompt below the output pane. The text inside `input(...)` identifies the value to enter. Type your response in the input field and press **Enter**. If the code has more than one `input(...)` call, answer the prompts in the order they appear.
+
+To test another case, select **Run** again and enter the next test value or set of values. The test values in the instructions below are responses to the program's prompts; do not replace the `input(...)` calls with them.
 
 ## Practice One-Way Decisions
 
@@ -13,7 +15,9 @@ Reminder: an [`if` statement](control_flow/if_statements.md#boolean-conditions-d
 
 ### You Try: Earn a Streak Bonus
 
-A player earns five bonus points after at least three consecutive wins. Add an `if` statement that updates `points` only when `earned_bonus` is `True`. Try streaks of `2` and `3`; the program should report `10` and `15` points.
+A player earns five bonus points after at least three consecutive wins. Add an `if` statement at the `TODO` that updates `points` only when `earned_bonus` is `True`.
+
+After editing the code, run it twice. At the **How many games have you won in a row?** prompt, enter `2` on the first run and `3` on the second. The program should report `10` points for `2` and `15` points for `3`.
 
 ~~~python { runnable=true editable=true title="You Try: Earn a Streak Bonus" }
 streak: int = int(input("How many games have you won in a row? "))
@@ -31,7 +35,9 @@ Reminder: an [`if`/`else` statement](control_flow/if_statements.md#else-provides
 
 ### You Try: Take a Turn in Pig
 
-In the dice game Pig, rolling `1` loses the points collected during the turn. Complete `after_roll` so it returns `0` when `roll` is `1` and `turn_total + roll` otherwise. Try a total of `9` with rolls of `5` and `1`; the program should report new totals of `14` and `0`.
+In the dice game Pig, rolling `1` loses the points collected during the turn. At the `TODO`, add an `if`/`else` statement so `after_roll` returns `0` when `roll` is `1` and `turn_total + roll` otherwise.
+
+After editing the code, run it twice. On the first run, enter `9` at the **What is your current turn total?** prompt, then enter `5` at the **What did you roll?** prompt; the new total should be `14`. On the second run, enter `9` and then `1`; the new total should be `0`.
 
 ~~~python { runnable=true editable=true title="You Try: Take a Turn in Pig" }
 def after_roll(turn_total: int, roll: int) -> int:
@@ -51,11 +57,13 @@ print("Your new turn total is " + str(turn_total) + ".")
 
 ## Practice Nested Decisions
 
-Reminder: a [nested conditional](control_flow/if_statements.md#conditional-statements-can-be-nested) is useful when Python should ask a second question only after taking a particular outer path.
+Reminder: a [nested conditional](control_flow/if_statements.md#conditional-statements-can-be-nested) is useful when Python should make a second decision only after taking a particular outer path.
 
 ### You Try: Escape the Puzzle Room
 
-The keypad opens the exit when its code is `110`. If the code is wrong, a player with a key can use the backup lock; otherwise, the exit stays shut. Add a nested `if`/`else` inside the outer `else` to assign the two missing messages.
+The keypad opens the exit when its code is `110`. If the code is wrong, a player with a key can use the backup lock; otherwise, the exit stays shut. At the `TODO`, add a nested `if`/`else` inside the existing outer `else` to assign the two missing messages.
+
+After editing the code, run it three times. Each run asks for the door code first and the backup-key response second. Enter `110` and then `no` to see the keypad-success message, `111` and then `yes` to see the backup-key message, and `111` and then `no` to see the locked message. Enter `yes` and `no` in lowercase, as shown in the prompt. When the code is `110`, the key response does not affect the result.
 
 ~~~python { runnable=true editable=true title="You Try: Escape the Puzzle Room" }
 def exit_message(code: int, has_key: bool) -> str:
@@ -84,9 +92,11 @@ Reminder: an [`elif` chain](control_flow/if_statements.md#elif-expresses-a-multi
 
 ### You Try: Flatten a Nested Rating
 
-Rewrite the function body as one `if`/`elif`/`elif`/`else` statement with no nesting. Try `1`, `3`, `5`, and `7` guesses to reach every result.
+Replace the nested conditional in `puzzle_rating` with one unnested `if`/`elif`/`elif`/`else` statement. Keep the same four ratings and the conditions that select them.
 
-~~~python { runnable=true editable=true title="You Try: Rate a Word Puzzle" }
+After editing the code, run it four times. At the **How many guesses did you use?** prompt, enter `1`, `3`, `5`, and `7`, one value per run. The results should be **Genius**, **Impressive**, **Solved**, and **Better luck next time**, respectively.
+
+~~~python { runnable=true editable=true title="You Try: Flatten a Nested Rating" }
 def puzzle_rating(guesses: int) -> str:
     """Rate a word puzzle by the number of guesses used."""
     rating: str = ""
@@ -112,9 +122,11 @@ print(puzzle_rating(guesses=guesses))
 
 ### You Try: Put the Thresholds in Order
 
-This chain has a bug: every passing score receives a `D`. Reorder its conditions without changing the comparisons. Try scores of `95`, `85`, `65`, and `30`; they should produce `A`, `B`, `D`, and `F`.
+This chain has a bug: every passing score receives a `D`. Reorder the complete condition-and-assignment branches from the highest threshold to the lowest. Do not change the comparisons or the letter assigned by each branch.
 
-~~~python { runnable=true editable=true title="You Try: Fix the Grade Order" }
+After editing the code, run it four times. At the **Enter a numeric score:** prompt, enter `95`, `85`, `65`, and `30`, one value per run. The program should report grades of `A`, `B`, `D`, and `F`, respectively.
+
+~~~python { runnable=true editable=true title="You Try: Put the Thresholds in Order" }
 def letter_grade(score: float) -> str:
     """Convert a numeric score to a letter grade."""
     grade: str = ""
@@ -142,7 +154,9 @@ Reminder: [separate `if` statements and an `elif` chain](control_flow/if_stateme
 
 ### You Try: Unlock Every Achievement
 
-A player should see every achievement whose threshold they reached. The current `elif` chain displays only the highest one. Change the structure so a player with `12` wins sees all three messages, while a player with `6` sees the first two.
+A player should see every achievement whose threshold they reached. The current `elif` chain displays only the highest one. Change both `elif` branches to separate `if` statements so every earned achievement is printed. Do not change the three comparisons or messages.
+
+After editing the code, run it twice. At the **How many games have you won?** prompt, enter `12` on the first run; all three achievement messages should appear. Enter `6` on the second run; **High Five** and **First Win** should appear, but **Tenacious Ten** should not.
 
 ~~~python { runnable=true editable=true title="You Try: Unlock Every Achievement" }
 wins: int = int(input("How many games have you won? "))
