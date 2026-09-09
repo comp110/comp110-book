@@ -12,6 +12,7 @@
   const cTerminalInputCapacity = 64 * 1024;
   const runnerFilename = "/tmp/python-runner.py";
   const displayFilename = "python-runner.py";
+  const pythonExecutionTimeLimitSeconds = 10;
   const canvasModuleFilename = "/tmp/browser_canvas.py";
   const canvasStubFilename = "/tmp/browser_canvas.pyi";
   const pygameModuleFilename = "/tmp/pygame.py";
@@ -1521,11 +1522,40 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
     positionAnnotationPopover(activeAnnotationAnchor, activeAnnotationPopover);
   }
 
+  function annotationPopoverTopBoundary(anchor, margin) {
+    let boundary = margin;
+    const header = document.querySelector(".md-header");
+    if (header) {
+      const headerRect = header.getBoundingClientRect();
+      if (headerRect.bottom > 0 && headerRect.top < window.innerHeight) {
+        boundary = Math.max(boundary, headerRect.bottom + margin);
+      }
+    }
+
+    const runner = anchor.closest("[data-python-runner]");
+    const toolbar = runner && runner.querySelector(
+      ":scope > .python-runner__listing > .python-runner__toolbar",
+    );
+    if (toolbar) {
+      const toolbarStyle = getComputedStyle(toolbar);
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const stickyTop = Number.parseFloat(toolbarStyle.top);
+      const isPinned = toolbarStyle.position === "sticky"
+        && Number.isFinite(stickyTop)
+        && toolbarRect.top <= stickyTop + 1;
+      if (isPinned && toolbarRect.bottom > 0 && toolbarRect.top < window.innerHeight) {
+        boundary = Math.max(boundary, toolbarRect.bottom + margin);
+      }
+    }
+    return boundary;
+  }
+
   function positionAnnotationPopover(anchor, popover) {
     const lineElement = anchor.closest(".cm-gutterElement") || anchor;
     const lineRect = lineElement.getBoundingClientRect();
     const margin = 8;
     const gap = 8;
+    const topBoundary = annotationPopoverTopBoundary(anchor, margin);
 
     popover.style.left = "0px";
     popover.style.top = "0px";
@@ -1535,18 +1565,18 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
 
     let placement = "above";
     let top = lineRect.top - popoverRect.height - gap;
-    if (top < margin) {
+    if (top < topBoundary) {
       placement = "below";
-      top = lineRect.bottom + gap;
+      top = Math.max(topBoundary, lineRect.bottom + gap);
     }
     if (top + popoverRect.height > window.innerHeight - margin) {
       const aboveTop = lineRect.top - popoverRect.height - gap;
-      if (aboveTop >= margin) {
+      if (aboveTop >= topBoundary) {
         placement = "above";
         top = aboveTop;
       } else {
         top = Math.max(
-          margin,
+          topBoundary,
           Math.min(top, window.innerHeight - popoverRect.height - margin),
         );
       }
@@ -1956,6 +1986,66 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
     output.textContent = text || "(no output)";
   }
 
+  function requestPythonInput(runnerId, prompt, stdout, stderr) {
+    const widget = findRunnerById(runnerId);
+    if (!widget) {
+      return Promise.reject(new Error("The Python runner is no longer on the page."));
+    }
+    if (widget.pythonRunnerPendingInput) {
+      return Promise.reject(new Error("This Python runner is already waiting for input."));
+    }
+
+    const output = widget.querySelector(".python-runner__output");
+    const transcript = [stdout, stderr].filter(Boolean).join("\n");
+    const promptText = String(prompt || "");
+    output.hidden = false;
+    output.classList.remove("is-error");
+    output.textContent = transcript;
+    output.append(document.createTextNode(promptText));
+
+    const input = document.createElement("input");
+    input.className = "python-runner__live-input";
+    input.type = "text";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.setAttribute(
+      "aria-label",
+      promptText ? `Python input for: ${promptText}` : "Python input",
+    );
+    input.placeholder = "Type a response and press Enter";
+    output.append(input);
+    widget.dataset.pythonRunnerState = "waiting-input";
+
+    return new Promise((resolve) => {
+      const submit = () => {
+        const value = input.value;
+        input.replaceWith(document.createTextNode(`${value}\n`));
+        widget.pythonRunnerPendingInput = null;
+        widget.dataset.pythonRunnerState = "running";
+        resolve(value);
+      };
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.isComposing) {
+          return;
+        }
+        event.preventDefault();
+        submit();
+      });
+      widget.pythonRunnerPendingInput = { input, submit };
+      input.focus();
+    });
+  }
+
+  window.__pythonRunnerInputBridge = {
+    read: requestPythonInput,
+  };
+
+  function waitForBrowserPaint() {
+    return new Promise((resolve) => {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+    });
+  }
+
   function getSource(widget) {
     if (widget.pythonRunnerEditor) {
       return widget.pythonRunnerEditor.state.doc.toString();
@@ -1965,6 +2055,11 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
 
   function getRunnableSource(widget) {
     return stripAnnotationMarkers(getSource(widget));
+  }
+
+  function getRunnerStdin(widget) {
+    const stdin = widget.querySelector("[data-runner-stdin]");
+    return stdin ? stdin.value : "";
   }
 
   function sourceImportsModule(source, moduleName) {
@@ -2197,10 +2292,38 @@ if "/tmp" not in sys.path:
 import contextlib
 import io
 import json
+import sys
+import time
 import traceback
 from typing import Any
 
 __python_runner_games: dict[str, dict[str, Any]] = {}
+
+
+class __PythonRunnerExecutionTimeout(BaseException):
+    pass
+
+
+__python_runner_timeout_message = (
+    "Execution stopped after ${pythonExecutionTimeLimitSeconds} seconds. "
+    "This example may contain an infinite loop."
+)
+
+
+def __python_runner_with_timeout(callback):
+    started_at = time.monotonic()
+
+    def trace(frame, event, argument):
+        if time.monotonic() - started_at >= ${pythonExecutionTimeLimitSeconds}:
+            raise __PythonRunnerExecutionTimeout(__python_runner_timeout_message)
+        return trace
+
+    previous_trace = sys.gettrace()
+    try:
+        sys.settrace(trace)
+        return callback()
+    finally:
+        sys.settrace(previous_trace)
 
 
 def __python_runner_diagnostic_from_syntax(error: SyntaxError) -> dict[str, object]:
@@ -2248,11 +2371,18 @@ def __python_runner_register_game(runner_id: str, source: str, filename: str) ->
     try:
         code = compile(source, filename, "exec")
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            exec(code, namespace)
+            def run_source():
+                exec(code, namespace)
+
+            __python_runner_with_timeout(run_source)
     except SyntaxError as error:
         failed = True
         traceback.print_exc(file=stderr)
         diagnostics.append(__python_runner_diagnostic_from_syntax(error))
+    except __PythonRunnerExecutionTimeout as error:
+        failed = True
+        stderr.write(str(error) + "\\n")
+        diagnostics.extend(__python_runner_diagnostics_from_error(error, filename))
     except Exception as error:
         failed = True
         traceback.print_exc(file=stderr)
@@ -2296,8 +2426,20 @@ def __python_runner_step_game(runner_id: str, dt: float) -> tuple[str, str, bool
         update = namespace["update"]
         draw = namespace["draw"]
         with namespace["__python_runner_stdout_redirect"], namespace["__python_runner_stderr_redirect"]:
-            update(float(dt))
-            draw()
+            def run_frame():
+                update(float(dt))
+                draw()
+
+            __python_runner_with_timeout(run_frame)
+    except __PythonRunnerExecutionTimeout as error:
+        failed = True
+        stderr.write(str(error) + "\\n")
+        diagnostics.extend(
+            __python_runner_diagnostics_from_error(
+                error,
+                str(namespace.get("__python_runner_filename", "${displayFilename}")),
+            )
+        )
     except Exception as error:
         failed = True
         traceback.print_exc(file=stderr)
@@ -2442,23 +2584,149 @@ for __markdown_runner_line in __markdown_runner_stdout.splitlines():
     pyodide.globals.set("__markdown_runner_canvas_runner_id", ensureRunnerId(widget));
 
     const result = await pyodide.runPythonAsync(`
+import ast
 import contextlib
+import inspect
 import io
 import json
+import sys
+import time
 import traceback
+from js import window
+
+
+class __MarkdownRunnerExecutionTimeout(BaseException):
+    pass
+
+
+class __MarkdownRunnerInputTransformer(ast.NodeTransformer):
+    def __init__(self, function_names):
+        self.function_names = function_names
+
+    def visit_FunctionDef(self, node):
+        transformed = self.generic_visit(node)
+        fields = {
+            field: getattr(transformed, field)
+            for field in ast.AsyncFunctionDef._fields
+        }
+        return ast.copy_location(ast.AsyncFunctionDef(**fields), transformed)
+
+    def visit_Call(self, node):
+        transformed = self.generic_visit(node)
+        if isinstance(transformed.func, ast.Name) and transformed.func.id == "input":
+            transformed.func = ast.copy_location(
+                ast.Name(id="__markdown_runner_browser_input", ctx=ast.Load()),
+                transformed.func,
+            )
+            return ast.copy_location(ast.Await(value=transformed), transformed)
+        if (
+            isinstance(transformed.func, ast.Name)
+            and transformed.func.id in self.function_names
+        ):
+            return ast.copy_location(ast.Await(value=transformed), transformed)
+        return transformed
+
 
 __markdown_runner_stdout = io.StringIO()
 __markdown_runner_stderr = io.StringIO()
 __markdown_runner_failed = False
 __markdown_runner_diagnostics = []
+__markdown_runner_timeout_message = (
+    "Execution stopped after ${pythonExecutionTimeLimitSeconds} seconds. "
+    "This example may contain an infinite loop."
+)
+
+
+def __markdown_runner_trace(frame, event, argument):
+    if time.monotonic() - __markdown_runner_started_at >= ${pythonExecutionTimeLimitSeconds}:
+        raise __MarkdownRunnerExecutionTimeout(__markdown_runner_timeout_message)
+    return __markdown_runner_trace
+
+
+async def __markdown_runner_browser_input(prompt=""):
+    global __markdown_runner_started_at
+    prompt_text = str(prompt)
+    previous_trace = sys.gettrace()
+    sys.settrace(None)
+    waiting_started_at = time.monotonic()
+    try:
+        value = await window.__pythonRunnerInputBridge.read(
+            __markdown_runner_canvas_runner_id,
+            prompt_text,
+            __markdown_runner_stdout.getvalue(),
+            __markdown_runner_stderr.getvalue(),
+        )
+    finally:
+        __markdown_runner_started_at += time.monotonic() - waiting_started_at
+        sys.settrace(previous_trace)
+    value_text = str(value)
+    __markdown_runner_stdout.write(prompt_text + value_text + "\\n")
+    return value_text
+
+
+def __markdown_runner_compile(source):
+    tree = ast.parse(source, filename="${displayFilename}", mode="exec")
+    uses_input = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "input"
+        for node in ast.walk(tree)
+    )
+    if not uses_input:
+        return compile(tree, "${displayFilename}", "exec"), False
+
+    function_names = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    transformed = __MarkdownRunnerInputTransformer(function_names).visit(tree)
+    ast.fix_missing_locations(transformed)
+    code = compile(
+        transformed,
+        "${displayFilename}",
+        "exec",
+        flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+    )
+    return code, True
+
 
 try:
-    __markdown_runner_code = compile(__markdown_runner_source, "${displayFilename}", "exec")
+    __markdown_runner_code, __markdown_runner_uses_input = __markdown_runner_compile(
+        __markdown_runner_source
+    )
     __markdown_runner_globals = {
+        "__markdown_runner_browser_input": __markdown_runner_browser_input,
         "__python_canvas_runner_id": __markdown_runner_canvas_runner_id,
     }
     with contextlib.redirect_stdout(__markdown_runner_stdout), contextlib.redirect_stderr(__markdown_runner_stderr):
-        exec(__markdown_runner_code, __markdown_runner_globals)
+        __markdown_runner_previous_trace = sys.gettrace()
+        __markdown_runner_started_at = time.monotonic()
+        try:
+            sys.settrace(__markdown_runner_trace)
+            if __markdown_runner_uses_input:
+                __markdown_runner_awaitable = eval(
+                    __markdown_runner_code,
+                    __markdown_runner_globals,
+                )
+                if inspect.isawaitable(__markdown_runner_awaitable):
+                    await __markdown_runner_awaitable
+            else:
+                exec(__markdown_runner_code, __markdown_runner_globals)
+        finally:
+            sys.settrace(__markdown_runner_previous_trace)
+except __MarkdownRunnerExecutionTimeout as __markdown_runner_error:
+    __markdown_runner_failed = True
+    __markdown_runner_stderr.write(__markdown_runner_timeout_message + "\\n")
+    for __markdown_runner_frame in traceback.extract_tb(__markdown_runner_error.__traceback__):
+        if __markdown_runner_frame.filename == "${displayFilename}":
+            __markdown_runner_diagnostics.append({
+                "line": __markdown_runner_frame.lineno,
+                "column": 1,
+                "message": __markdown_runner_timeout_message,
+                "severity": "error",
+                "source": "runtime",
+            })
 except Exception as __markdown_runner_error:
     __markdown_runner_failed = True
     traceback.print_exc(file=__markdown_runner_stderr)
@@ -2869,11 +3137,6 @@ except Exception as __markdown_runner_error:
     return diagnostics;
   }
 
-  function getCStdin(widget) {
-    const stdin = widget.querySelector("[data-c-runner-stdin]");
-    return stdin ? stdin.value : "";
-  }
-
   function cCompileCommand() {
     return {
       binaryURL: `${cRunnerBaseUrl}/clang.wasm`,
@@ -3033,7 +3296,7 @@ except Exception as __markdown_runner_error:
 
     try {
       outputText(output, "Compiling C...", false);
-      const result = await executeC(code, getCStdin(widget));
+      const result = await executeC(code, getRunnerStdin(widget));
       setEditorDiagnostics(widget, result.diagnostics);
       outputText(output, result.output, result.failed);
     } catch (error) {
@@ -3516,6 +3779,7 @@ self.onmessage = async (event) => {
     if (isGame) {
       stopPygameGame(widget);
     }
+    widget.dataset.pythonRunnerState = "loading";
     outputText(output, "Loading Python...", false);
 
     try {
@@ -3525,6 +3789,7 @@ self.onmessage = async (event) => {
       }
 
       const pyodide = await getPyodide();
+      widget.dataset.pythonRunnerState = "checking-syntax";
       outputText(output, "Checking syntax...", false);
 
       const syntaxResult = await cachedAsync(
@@ -3539,6 +3804,7 @@ self.onmessage = async (event) => {
         return;
       }
 
+      widget.dataset.pythonRunnerState = "preparing-helpers";
       outputText(output, "Preparing browser helpers...", false);
       if (needsCanvasModule) {
         await ensureCanvasModule(pyodide);
@@ -3550,6 +3816,7 @@ self.onmessage = async (event) => {
         await ensurePygameModule(pyodide);
       }
 
+      widget.dataset.pythonRunnerState = "type-checking";
       outputText(output, "Type checking...", false);
       const typeCheckResult = await cachedAsync(
         pythonTypeCheckCache,
@@ -3563,7 +3830,16 @@ self.onmessage = async (event) => {
         return;
       }
 
-      outputText(output, isGame ? "Starting game..." : "Running...", false);
+      widget.dataset.pythonRunnerState = "running";
+      widget.pythonRunnerExecutionStartedAt = performance.now();
+      outputText(
+        output,
+        isGame
+          ? "Starting game..."
+          : `Running (${pythonExecutionTimeLimitSeconds} second limit)...`,
+        false,
+      );
+      await waitForBrowserPaint();
       const executionResult = isGame
         ? executePygameGame(code, widget, gameRuntime)
         : await executePython(pyodide, code, widget);
@@ -3572,6 +3848,7 @@ self.onmessage = async (event) => {
     } catch (error) {
       outputText(output, error && error.stack ? error.stack : String(error), true);
     } finally {
+      widget.dataset.pythonRunnerState = "ready";
       button.disabled = false;
     }
   }
@@ -3584,6 +3861,7 @@ self.onmessage = async (event) => {
     widgets.forEach((widget) => {
       ensureRunnerId(widget);
       widget.setAttribute("data-python-runner-ready", "true");
+      widget.dataset.pythonRunnerState = "ready";
       installEditor(widget);
       widget.querySelector(".python-runner__run")
         .addEventListener("click", () => runPython(widget));

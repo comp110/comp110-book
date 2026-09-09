@@ -3,7 +3,19 @@
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 8px;
   margin: 1.2em 0;
-  overflow: hidden;
+  overflow: clip;
+}
+
+.python-runner__listing {
+  position: relative;
+}
+
+@media screen {
+  .python-runner[data-python-runner] > .python-runner__listing > .python-runner__toolbar {
+    position: sticky;
+    top: 2.4rem;
+    z-index: 3;
+  }
 }
 
 .python-runner__toolbar {
@@ -368,6 +380,36 @@
   white-space: pre-wrap;
 }
 
+body:not([data-md-color-scheme="slate"]) .python-runner__output {
+  background: #0b1020;
+  border-top-color: #263248;
+  color: #fff;
+}
+
+.python-runner__live-input {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  border-radius: 0;
+  caret-color: currentColor;
+  color: inherit;
+  font: inherit;
+  margin: 0 0.2rem;
+  min-width: min(22rem, 70%);
+  outline: 0;
+  padding: 0 0.15rem;
+}
+
+.python-runner__live-input:focus {
+  border-bottom-color: #60a5fa;
+  box-shadow: 0 2px 0 #60a5fa;
+}
+
+.python-runner__live-input::placeholder {
+  color: #aeb9ca;
+  opacity: 1;
+}
+
 .python-runner__output.is-error {
   color: var(--md-code-hl-special-color);
 }
@@ -433,6 +475,7 @@
 }
 
 .python-diagram-runner {
+  isolation: isolate;
   overflow: visible;
   position: relative;
 }
@@ -522,7 +565,6 @@ body.python-diagram-runner-fullscreen-open {
   justify-content: flex-start;
   padding: 0.45rem 0.7rem;
   position: relative;
-  z-index: 9;
 }
 
 .python-diagram-runner:not(.python-diagram-runner--titled) > .python-runner__code,
@@ -725,7 +767,7 @@ body.python-diagram-runner-fullscreen-open {
   position: absolute;
   top: 5rem;
   width: max-content;
-  z-index: 8;
+  z-index: 2;
 }
 
 .python-diagram-runner__current-step[hidden] {
@@ -777,4 +819,3 @@ body.python-diagram-runner-fullscreen-open {
   height: auto;
   width: 100%;
 }
-

@@ -111,7 +111,7 @@ def _format_runner(
         stdin_markup = (
             '<label class="python-runner__stdin-label">'
             "<span>stdin</span>"
-            '<textarea class="python-runner__stdin" data-c-runner-stdin '
+            '<textarea class="python-runner__stdin" data-runner-stdin '
             'spellcheck="false">'
             f"{escaped_stdin}</textarea>"
             "</label>"
@@ -129,6 +129,7 @@ def _format_runner(
 
     return (
         f'<div class="{classes}" {attributes}>'
+        '<div class="python-runner__listing">'
         '<div class="python-runner__toolbar">'
         f'<span class="python-runner__title">{escaped_title}</span>'
         '<button class="python-runner__run" type="button">Run</button>'
@@ -137,6 +138,7 @@ def _format_runner(
         f"{escaped_source}</code></pre>"
         f"{stdin_markup}"
         f"{terminal_markup}"
+        "</div>"
         '<pre class="python-runner__output" aria-live="polite" hidden></pre>'
         "</div>"
     )

@@ -133,6 +133,9 @@ def test_standard_language_fences_opt_into_runners_with_runnable_parameter() -> 
     assert 'data-runner-editable="false"' in python_runnable_html
     assert 'data-runner-highlight-lines="1,2"' in python_runnable_html
     assert '<span class="python-runner__title">Runnable Python</span>' in python_runnable_html
+    assert '<div class="python-runner__listing">' in python_runnable_html
+    assert '</div><pre class="python-runner__output"' in python_runnable_html
+    assert 'data-runner-stdin' not in python_runnable_html
 
     plain_c_html = render_runner_markdown('```c\nputs("plain");\n```')
     assert "data-c-runner" not in plain_c_html
@@ -148,6 +151,7 @@ def test_standard_language_fences_opt_into_runners_with_runnable_parameter() -> 
     assert 'data-runner-editable="false"' in c_runner_html
     assert 'data-runner-highlight-lines="1"' in c_runner_html
     assert '<span class="python-runner__title">Runnable C</span>' in c_runner_html
+    assert 'data-runner-stdin' in c_runner_html
     assert 'Maya 3' in c_runner_html
 
     static_diagram_html = render_runner_markdown(
@@ -172,6 +176,106 @@ def test_standard_language_fences_opt_into_runners_with_runnable_parameter() -> 
     assert "python-diagram-runner--titled" in editable_diagram_html
     assert editable_diagram_html.count("Editable Diagram") == 1
     assert editable_diagram_html.index("python-runner__toolbar") < editable_diagram_html.index("python-runner__code") < editable_diagram_html.index("python-diagram-runner__controls") < editable_diagram_html.index("python-diagram-runner__workspace")
+
+
+def test_python_runner_toolbar_sticks_until_output_and_light_output_is_dark() -> None:
+    subprocess.run(
+        [sys.executable, "-m", "zensical", "build", "--clean"],
+        cwd=ROOT,
+        check=True,
+    )
+
+    server, base_url = serve_site()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1280, "height": 720})
+            messages: list[str] = []
+            page.on("console", lambda msg: messages.append(f"{msg.type}: {msg.text}"))
+            page.on("pageerror", lambda exc: messages.append(f"pageerror: {exc}"))
+
+            page.goto(f"{base_url}/python-functions/", wait_until="domcontentloaded")
+            runner = page.locator("[data-python-runner]").first
+            runner.locator(".cm-editor").wait_for(state="visible", timeout=60_000)
+            expect(runner.locator(":scope > .python-runner__listing")).to_have_count(1)
+
+            layout = page.evaluate(
+                """
+                async () => {
+                  document.body.removeAttribute("data-md-color-scheme");
+
+                  const runner = document.querySelector("[data-python-runner]");
+                  const listing = runner.querySelector(":scope > .python-runner__listing");
+                  const toolbar = listing.querySelector(":scope > .python-runner__toolbar");
+                  const editor = listing.querySelector(".python-runner__editor");
+                  const codeMirror = editor.querySelector(".cm-editor");
+                  const output = runner.querySelector(":scope > .python-runner__output");
+                  const header = document.querySelector(".md-header");
+                  const settle = () => new Promise(
+                    (resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)),
+                  );
+
+                  editor.style.minHeight = "900px";
+                  codeMirror.style.minHeight = "900px";
+                  output.hidden = false;
+                  output.textContent = "42";
+                  output.style.minHeight = "240px";
+                  document.body.style.paddingBottom = "1200px";
+                  await settle();
+
+                  const headerBottom = header.getBoundingClientRect().bottom;
+                  const toolbarHeight = toolbar.getBoundingClientRect().height;
+                  const toolbarDocumentTop = toolbar.getBoundingClientRect().top + window.scrollY;
+
+                  window.scrollTo(0, toolbarDocumentTop + 160);
+                  await settle();
+                  const stuck = {
+                    outputTop: output.getBoundingClientRect().top,
+                    toolbarBottom: toolbar.getBoundingClientRect().bottom,
+                    toolbarTop: toolbar.getBoundingClientRect().top,
+                  };
+
+                  const outputDocumentTop = output.getBoundingClientRect().top + window.scrollY;
+                  const desiredOutputTop = headerBottom + toolbarHeight - 20;
+                  window.scrollTo(0, outputDocumentTop - desiredOutputTop);
+                  await settle();
+
+                  const outputStyle = getComputedStyle(output);
+                  const toolbarStyle = getComputedStyle(toolbar);
+                  const stopped = {
+                    outputTop: output.getBoundingClientRect().top,
+                    toolbarBottom: toolbar.getBoundingClientRect().bottom,
+                    toolbarTop: toolbar.getBoundingClientRect().top,
+                  };
+
+                  return {
+                    background: outputStyle.backgroundColor,
+                    color: outputStyle.color,
+                    headerBottom,
+                    listingContainsOutput: listing.contains(output),
+                    position: toolbarStyle.position,
+                    stopped,
+                    stuck,
+                    top: toolbarStyle.top,
+                  };
+                }
+                """
+            )
+
+            assert layout["position"] == "sticky"
+            assert layout["top"] == "48px"
+            assert abs(layout["stuck"]["toolbarTop"] - layout["headerBottom"]) < 1
+            assert layout["stuck"]["toolbarBottom"] < layout["stuck"]["outputTop"]
+            assert layout["stopped"]["toolbarTop"] < layout["headerBottom"]
+            assert layout["stopped"]["toolbarBottom"] <= layout["stopped"]["outputTop"] + 1
+            assert layout["listingContainsOutput"] is False
+            assert layout["background"] == "rgb(11, 16, 32)"
+            assert layout["color"] == "rgb(255, 255, 255)"
+            assert not any(msg.startswith("pageerror:") for msg in messages)
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_runnable_python_examples_are_editable_and_run() -> None:
@@ -394,8 +498,14 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
                 """
                 () => {
                   const marker = document.querySelector(".python-runner__annotation-marker");
+                  const toolbar = document.querySelector(
+                    "[data-python-runner] > .python-runner__listing > .python-runner__toolbar",
+                  );
+                  const header = document.querySelector(".md-header");
                   const markerTop = marker.getBoundingClientRect().top + window.scrollY;
-                  window.scrollTo(0, Math.max(0, markerTop - 58));
+                  const visibleToolbarBottom = header.getBoundingClientRect().bottom
+                    + toolbar.getBoundingClientRect().height;
+                  window.scrollTo(0, Math.max(0, markerTop - visibleToolbarBottom - 8));
                 }
                 """
             )
@@ -769,6 +879,256 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
         server.server_close()
 
 
+def test_control_flow_python_input_timeout_and_reversed_string_diagram() -> None:
+    subprocess.run(
+        [sys.executable, "-m", "zensical", "build", "--clean"],
+        cwd=ROOT,
+        check=True,
+    )
+
+    server, base_url = serve_site()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.set_default_timeout(120_000)
+            messages: list[str] = []
+            page.on("console", lambda msg: messages.append(f"{msg.type}: {msg.text}"))
+            page.on("pageerror", lambda exc: messages.append(f"pageerror: {exc}"))
+
+            page.goto(
+                f"{base_url}/control_flow/while_loops/",
+                wait_until="domcontentloaded",
+            )
+            page.wait_for_function(
+                "() => document.querySelectorAll('div.mermaid').length === 3",
+                timeout=60_000,
+            )
+            expect(page.locator("pre.mermaid")).to_have_count(0)
+            assert "Syntax error in text" not in page.locator("body").inner_text()
+
+            reversed_diagram = page.locator("[data-python-diagram-runner]").filter(
+                has=page.locator(
+                    ".python-runner__title",
+                    has_text="Tracing a Reversed String",
+                ),
+            )
+            expect(reversed_diagram).to_have_count(1)
+            reversed_diagram.locator(".cm-editor").wait_for(
+                state="visible",
+                timeout=60_000,
+            )
+            diagram_handle = reversed_diagram.element_handle()
+            assert diagram_handle is not None
+            page.wait_for_function(
+                """
+                (element) => Boolean(
+                  element.pythonDiagramRunner
+                  && element.pythonDiagramRunner.trace.length > 0
+                )
+                """,
+                arg=diagram_handle,
+                timeout=60_000,
+            )
+            diagram_result = reversed_diagram.evaluate(
+                """
+                (element) => {
+                  const state = element.pythonDiagramRunner;
+                  const last = state.trace[state.trace.length - 1];
+                  return {
+                    failed: last.failed,
+                    output: last.snapshot.output,
+                    source: state.source.value,
+                  };
+                }
+                """,
+            )
+            assert diagram_result["failed"] is False
+            assert diagram_result["output"] == ["wolf"]
+            assert 'print(reverse(text="flow"))' in diagram_result["source"]
+
+            reversed_runner = page.locator("[data-python-runner]").filter(
+                has=page.locator(
+                    ".python-runner__title",
+                    has_text="Building a Reversed String",
+                ),
+            )
+            expect(reversed_runner).to_have_count(1)
+            reversed_runner.locator(".cm-editor").wait_for(
+                state="visible",
+                timeout=60_000,
+            )
+            reversed_runner.locator(".python-runner__run").click()
+            reversed_output = reversed_runner.locator(".python-runner__output")
+            reversed_input = reversed_runner.locator(".python-runner__live-input")
+            reversed_input.wait_for(state="visible", timeout=90_000)
+            expect(reversed_output).to_contain_text("Enter text to reverse:")
+            reversed_input.fill("digital")
+            reversed_input.press("Enter")
+            expect(reversed_output).to_contain_text("latigid", timeout=10_000)
+            expect(reversed_input).to_have_count(0)
+            expect(reversed_runner).to_have_attribute(
+                "data-python-runner-state",
+                "ready",
+            )
+
+            input_runner = page.locator("[data-python-runner]").filter(
+                has=page.locator(
+                    ".python-runner__title",
+                    has_text="Playing Until the User Stops",
+                ),
+            )
+            expect(input_runner).to_have_count(1)
+            input_runner.locator(".cm-editor").wait_for(
+                state="visible",
+                timeout=60_000,
+            )
+            expect(input_runner.locator(".python-runner__stdin")).to_have_count(0)
+            input_runner.locator(".python-runner__run").click()
+            output = input_runner.locator(".python-runner__output")
+            live_input = input_runner.locator(".python-runner__live-input")
+            live_input.wait_for(state="visible", timeout=90_000)
+            expect(output).to_contain_text("Playing round 1")
+            expect(output).to_contain_text("Press OK to continue, or enter stop:")
+            expect(input_runner).to_have_attribute(
+                "data-python-runner-state",
+                "waiting-input",
+            )
+            expect(input_runner.locator(".python-runner__run")).to_be_disabled()
+            expect(live_input).to_be_focused()
+
+            live_input.fill("again")
+            live_input.press("Enter")
+            live_input.wait_for(state="visible", timeout=10_000)
+            expect(output).to_contain_text("Playing round 2")
+            expect(input_runner).to_have_attribute(
+                "data-python-runner-state",
+                "waiting-input",
+            )
+
+            live_input.fill("stop")
+            live_input.press("Enter")
+            expect(output).to_contain_text("Thanks for playing!", timeout=10_000)
+            expect(live_input).to_have_count(0)
+            expect(input_runner.locator(".python-runner__run")).to_be_enabled()
+            expect(input_runner).to_have_attribute("data-python-runner-state", "ready")
+            assert "again" in output.inner_text()
+            assert "stop" in output.inner_text()
+            assert "OSError" not in output.inner_text()
+            assert "EOFError" not in output.inner_text()
+
+            computation_runner = page.locator("[data-python-runner]").filter(
+                has=page.locator(
+                    ".python-runner__title",
+                    has_text="Approximating Pi with 100,000 Iterations",
+                ),
+            )
+            expect(computation_runner).to_have_count(1)
+            computation_runner.locator(".cm-editor").wait_for(
+                state="visible",
+                timeout=60_000,
+            )
+            computation_runner.locator(".python-runner__run").click()
+            computation_output = computation_runner.locator(".python-runner__output")
+            expect(computation_output).to_contain_text(
+                "After 100000 iterations:",
+                timeout=30_000,
+            )
+            expect(computation_output).to_contain_text("3.1415826536")
+
+            input_runner.evaluate(
+                """
+                (element) => {
+                  const editor = element.pythonRunnerEditor;
+                  editor.dispatch({
+                    changes: {
+                      from: 0,
+                      to: editor.state.doc.length,
+                      insert: "while True:\\n    pass\\n",
+                    },
+                  });
+                  element.pythonRunnerObservedStates = [];
+                  element.pythonRunnerObservedRunningText = null;
+                  const observer = new MutationObserver(() => {
+                    const state = element.dataset.pythonRunnerState;
+                    element.pythonRunnerObservedStates.push(state);
+                    if (state === "running") {
+                      element.pythonRunnerObservedRunningText = element.querySelector(
+                        ".python-runner__output",
+                      ).textContent;
+                    }
+                  });
+                  observer.observe(element, {
+                    attributeFilter: ["data-python-runner-state"],
+                  });
+                  element.pythonRunnerStateObserver = observer;
+                }
+                """,
+            )
+            input_runner.locator(".python-runner__run").click()
+            expect(output).to_contain_text(
+                "Execution stopped after 10 seconds.",
+                timeout=25_000,
+            )
+            expect(output).to_contain_text("may contain an infinite loop")
+            expect(output).to_have_class(re.compile(r"\bis-error\b"))
+            expect(input_runner.locator(".python-runner__diagnostic--error")).to_be_visible()
+            expect(input_runner.locator(".python-runner__run")).to_be_enabled()
+            expect(input_runner).to_have_attribute("data-python-runner-state", "ready")
+
+            timeout_state = input_runner.evaluate(
+                """
+                (element) => {
+                  element.pythonRunnerStateObserver.disconnect();
+                  return {
+                    elapsed: performance.now() - element.pythonRunnerExecutionStartedAt,
+                    runningText: element.pythonRunnerObservedRunningText,
+                    states: element.pythonRunnerObservedStates,
+                  };
+                }
+                """,
+            )
+            assert "running" in timeout_state["states"]
+            assert timeout_state["runningText"] == "Running (10 second limit)..."
+            assert 9_500 <= timeout_state["elapsed"] < 16_000
+
+            input_runner.evaluate(
+                """
+                (element) => {
+                  const editor = element.pythonRunnerEditor;
+                  editor.dispatch({
+                    changes: {
+                      from: 0,
+                      to: editor.state.doc.length,
+                      insert: 'print("runner recovered")\\n',
+                    },
+                  });
+                }
+                """,
+            )
+            input_runner.locator(".python-runner__run").click()
+            expect(output).to_have_text("runner recovered", timeout=30_000)
+            assert "is-error" not in (output.get_attribute("class") or "")
+
+            page.goto(
+                f"{base_url}/control_flow/if_statements/",
+                wait_until="domcontentloaded",
+            )
+            page.wait_for_function(
+                "() => document.querySelectorAll('div.mermaid').length === 4",
+                timeout=60_000,
+            )
+            expect(page.locator("pre.mermaid")).to_have_count(0)
+            assert "Syntax error in text" not in page.locator("body").inner_text()
+
+            assert not any("CodeMirror failed" in msg for msg in messages)
+            assert not any(msg.startswith("pageerror:") for msg in messages)
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_python_diagram_runner_steps_and_reports_errors() -> None:
     subprocess.run(
         [sys.executable, "-m", "zensical", "build", "--clean"],
@@ -819,6 +1179,7 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                     controlsBottom: controlsRect.bottom,
                     controlsJustify: getComputedStyle(controls).justifyContent,
                     controlsTop: controlsRect.top,
+                    controlsZIndex: getComputedStyle(controls).zIndex,
                     editorBottom: editorRect.bottom,
                     workspaceTop: workspaceRect.top,
                   };
@@ -826,6 +1187,7 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                 """,
             )
             assert normal_layout["controlsJustify"] == "flex-start"
+            assert normal_layout["controlsZIndex"] == "auto"
             assert abs(normal_layout["editorBottom"] - normal_layout["controlsTop"]) <= 1
             assert abs(normal_layout["controlsBottom"] - normal_layout["workspaceTop"]) <= 1
             expect(diagram_runner.locator(".cm-content")).to_have_attribute(
@@ -1025,6 +1387,7 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                     buttonPressed: button.getAttribute("aria-pressed"),
                     controlsBottom: controlsRect.bottom,
                     controlsWidth: controlsRect.width,
+                    controlsZIndex: getComputedStyle(controls).zIndex,
                     editorLeft: editorRect.left,
                     editorRight: editorRect.right,
                     editorTop: editorRect.top,
@@ -1044,6 +1407,7 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             assert fullscreen_layout["widgetWidth"] == page.viewport_size["width"]
             assert fullscreen_layout["widgetHeight"] == page.viewport_size["height"]
             assert abs(fullscreen_layout["controlsWidth"] - fullscreen_layout["widgetWidth"]) <= 1
+            assert fullscreen_layout["controlsZIndex"] == "9"
             assert abs(fullscreen_layout["controlsBottom"] - fullscreen_layout["editorTop"]) <= 1
             assert fullscreen_layout["editorLeft"] < fullscreen_layout["workspaceLeft"]
             assert fullscreen_layout["editorRight"] <= fullscreen_layout["workspaceLeft"] + 1
@@ -1081,6 +1445,14 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
 
             current_step = page.locator("[data-python-diagram-current-step]")
             expect(current_step).to_be_hidden()
+            assert current_step.evaluate(
+                """
+                (element) => ({
+                  runnerIsolation: getComputedStyle(element.closest(".python-diagram-runner")).isolation,
+                  zIndex: getComputedStyle(element).zIndex,
+                })
+                """,
+            ) == {"runnerIsolation": "isolate", "zIndex": "2"}
             assert page.evaluate(
                 """
                 () => document

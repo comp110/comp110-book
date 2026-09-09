@@ -1854,6 +1854,38 @@
       && typeConstructorNames.has(expression.callee.name);
   }
 
+  function isLenCall(expression) {
+    return expression.type === "call"
+      && expression.callee.type === "name"
+      && expression.callee.name === "len";
+  }
+
+  function evaluateLenCall(state, expression) {
+    if (expression.keywords.length || expression.args.length !== 1) {
+      throw new DiagramError(
+        expression.line,
+        `TypeError on Line ${expression.line}: len() expects exactly 1 positional argument.`,
+        expression.span,
+      );
+    }
+    const value = evaluateExpression(expression.args[0], state);
+    if (value.type !== "str") {
+      throw new DiagramError(
+        expression.line,
+        `TypeError on Line ${expression.line}: len() expects a string in this diagram.`,
+        expression.span,
+      );
+    }
+    const result = makeValue("int", value.value.length);
+    addStep(
+      state,
+      expression.line,
+      `Built-in call: len(${formatValue(value)}) -> ${formatValue(result)}.`,
+      expression.span,
+    );
+    return result;
+  }
+
   function callFunction(state, fn, positionalArgs, keywordArgs, lineNumber, highlight = null) {
     if (positionalArgs.length > fn.params.length) {
       return functionCallError(
@@ -2110,7 +2142,7 @@
         index += 2;
         continue;
       }
-      if ("+-*/%(),<>=".includes(char)) {
+      if ("+-*/%(),<>=[]".includes(char)) {
         tokens.push({ end: baseOffset + index + 1, type: "operator", value: char, start: baseOffset + index });
         index += 1;
         continue;
@@ -2307,7 +2339,21 @@
       throw new DiagramError(stream.lineNumber, `Unexpected expression token: ${token.value}`);
     }
 
-    while (stream.peek("(")) {
+    while (stream.peek("(") || stream.peek("[")) {
+      if (stream.peek("[")) {
+        stream.consume();
+        const index = parseComparison(stream);
+        const close = stream.expect("]");
+        node = {
+          collection: node,
+          index,
+          line: stream.lineNumber,
+          span: { from: node.span.from, to: close.end },
+          type: "subscript",
+        };
+        continue;
+      }
+
       const open = stream.consume();
       const args = [];
       const keywords = [];
@@ -2371,12 +2417,51 @@
       addStep(state, node.line, `Arithmetic expression: ${formatValue(left)} ${node.operator} ${formatValue(right)} -> ${formatValue(result)}.`, node.span);
       return result;
     }
+    if (node.type === "subscript") {
+      const collection = evaluateExpression(node.collection, state);
+      const index = evaluateExpression(node.index, state);
+      if (collection.type !== "str") {
+        throw new DiagramError(
+          node.line,
+          `TypeError on Line ${node.line}: only strings can be indexed in this diagram.`,
+          node.span,
+        );
+      }
+      if (index.type !== "int") {
+        throw new DiagramError(
+          node.line,
+          `TypeError on Line ${node.line}: string indices must be integers.`,
+          node.span,
+        );
+      }
+      const normalizedIndex = index.value < 0
+        ? collection.value.length + index.value
+        : index.value;
+      if (normalizedIndex < 0 || normalizedIndex >= collection.value.length) {
+        throw new DiagramError(
+          node.line,
+          `IndexError on Line ${node.line}: string index out of range.`,
+          node.span,
+        );
+      }
+      const result = makeValue("str", collection.value[normalizedIndex]);
+      addStep(
+        state,
+        node.line,
+        `Index expression: ${formatValue(collection)}[${formatValue(index)}] -> ${formatValue(result)}.`,
+        node.span,
+      );
+      return result;
+    }
     if (node.type === "call") {
       if (isPrintCall(node)) {
         return evaluatePrintCall(state, node);
       }
       if (isTypeConstructorCall(node)) {
         return evaluateTypeConstructorCall(state, node);
+      }
+      if (isLenCall(node)) {
+        return evaluateLenCall(state, node);
       }
       if (node.callee.type !== "name") {
         throw new DiagramError(node.line, "Only named function calls are supported.");
