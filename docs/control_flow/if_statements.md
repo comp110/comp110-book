@@ -204,6 +204,53 @@ The `elif` version makes the single chain of choices visible. Because Python sto
 
 For example, a test for `score >= 80` must come after a test for `score >= 90`. Reversing them would cause a score of `95` to take the `score >= 80` branch before Python ever reached the more specific condition.
 
+### Separate `if` Statements and an `elif` Chain Answer Different Questions
+
+An `if`/`elif` chain represents one multiway choice. Python runs at most one branch in the chain because it skips the remaining conditions after finding the first true one. Several separate `if` statements represent several independent choices. Python evaluates every `if` condition, so any number of their bodies may run.
+
+These separate `if` statements award points for every threshold a score reaches:
+
+~~~python_diagram_runner { editable=true title="Separate if Statements Test Every Condition" }
+points: int = 0
+score: int = 95
+
+if score >= 90:
+    points = points + 3
+
+if score >= 80:
+    points = points + 2
+
+if score >= 70:
+    points = points + 1
+
+print(points)
+~~~
+
+All three conditions are true, so all three bodies run and `points` ends at `6`.
+
+Changing the second and third headers to `elif` makes the tests one chain:
+
+~~~python_diagram_runner { editable=true title="An elif Chain Stops After One Match" }
+points: int = 0
+score: int = 95
+
+if score >= 90:
+    points = points + 3
+elif score >= 80:
+    points = points + 2
+elif score >= 70:
+    points = points + 1
+
+print(points)
+~~~
+
+The first condition is true, so its body runs and Python skips the rest of the chain. `points` ends at `3`. Because there is no final `else`, a score below `70` would run no branch and leave `points` at `0`.
+
+Choose the structure based on the question the program is asking:
+
+- Use an `if`/`elif` chain when the cases are alternatives and at most one should apply.
+- Use separate `if` statements when each condition is independent and several bodies may need to run.
+
 ## Common If Statement Errors
 
 ### Misreading Indentation
@@ -228,5 +275,106 @@ always_report_check(value=-1)
 ~~~
 
 The first call prints nothing because both statements belong to its if body. The second call prints `Checked.` because that statement is outside the if body and runs after the conditional for either Boolean result.
+
+### Reading a Variable That a Branch Did Not Initialize
+
+A function must initialize a local variable before any path tries to read it. An assignment inside an `if` body may not run, so it cannot initialize a variable for every possible path.
+
+~~~python_diagram_runner { editable=true title="A Branch May Skip Initialization" }
+def describe_sign(n: int) -> str:
+    """Describe whether n is positive."""
+    if n > 0:
+        label: str = "positive"
+
+    return label
+
+
+print(describe_sign(n=5))
+print(describe_sign(n=-3))
+~~~
+
+The first call initializes `label` and returns normally. In the second call, the condition is false, the assignment is skipped, and `return label` tries to read a local variable that has no value. Python reports an **`UnboundLocalError`**, a specific kind of `NameError` for a local variable that is read before it is assigned.
+
+The **initialize-then-branch** pattern prevents this error. Initialize the variable to a meaningful default before the conditional, then reassign it in any branch that needs a different value.
+
+~~~python_diagram_runner { editable=true title="Initialize Before Branching" }
+def describe_sign(n: int) -> str:
+    """Describe whether n is positive."""
+    label: str = "not positive"
+
+    if n > 0:
+        label = "positive"
+
+    return label
+
+
+print(describe_sign(n=5))
+print(describe_sign(n=-3))
+~~~
+
+Now every call initializes `label` before Python decides whether to reassign it. An `if`/`else` that assigns `label` in both branches would also ensure that every path gives it a value.
+
+An assignment to a name anywhere in a function makes that name local to the function by default. A global variable with the same name does not provide a fallback value for an uninitialized local variable.
+
+### Using `=` Instead of `==` in a Condition
+
+The assignment operator `=` stores a value; the equality operator `==` compares two values. An `if` condition that uses `=` where it needs `==` is invalid syntax, so Python reports a `SyntaxError` before running the program.
+
+~~~python_diagram_runner { editable=true title="Assignment Is Not an Equality Test" }
+answer: int = 4
+
+if answer = 4:
+    print("Correct!")
+~~~
+
+### Omitting the Indented Block
+
+Every conditional header must be followed by an indented block. Python reports an `IndentationError` when the statement after a header is not indented.
+
+~~~python_diagram_runner { editable=true title="A Conditional Body Must Be Indented" }
+answer: int = 4
+
+if answer == 4:
+print("Correct!")
+~~~
+
+### Omitting the Colon
+
+Every `if`, `elif`, and `else` header must end with a colon. Leaving it out produces a `SyntaxError`.
+
+~~~python_diagram_runner { editable=true title="A Conditional Header Needs a Colon" }
+answer: int = 4
+
+if answer == 4
+    print("Correct!")
+~~~
+
+### Placing `elif` After `else`
+
+An `else` handles every case not matched above it, so it must be the final branch. Placing an `elif` after `else` produces a `SyntaxError`.
+
+~~~python_diagram_runner { editable=true title="else Must Be the Final Branch" }
+score: int = 85
+
+if score >= 90:
+    print("A")
+else:
+    print("F")
+elif score >= 80:
+    print("B")
+~~~
+
+### Giving `else` a Condition
+
+An `else` header never has a condition. Use `elif` when a remaining branch needs its own condition.
+
+~~~python_diagram_runner { editable=true title="Use elif for Another Condition" }
+score: int = 85
+
+if score >= 90:
+    print("A")
+else score >= 80:
+    print("B")
+~~~
 
 [^truth-value-rules]: Python can also test non-Boolean values using truth-value testing, also known as truthiness. These rules are more complex: for example, zero and empty values are falsy, while many other values are truthy. Some truth-value tests are concise and idiomatic in Python, but using implicit truthiness in ways that hide a value's type or intent is poor practice. Prefer conditions designed to produce an actual `bool`; explicit Boolean expressions are easier to read, type-check, and reason about.
