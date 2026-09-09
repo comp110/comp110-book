@@ -9,12 +9,18 @@ dev_addr = "0.0.0.0:8000"
 extra_css = ["stylesheets/python-runner.css"]
 extra_javascript = ["javascripts/python-runner-loader.js"]
 nav = [
-  {"Function Fundamentals" = "function_fundamentals.md"},
-  {"Variable Fundamentals" = "variable_fundamentals.md"},
-  {"Control Flow Fundamentals" = [
-    {"If Statements" = "control_flow/if_statements.md"},
-    {"While Loops" = "control_flow/while_loops.md"},
-    {"Composing If and While" = "control_flow/composition.md"},
+  {"Reference" = [
+    {"Function Fundamentals" = "function_fundamentals.md"},
+    {"Variable Fundamentals" = "variable_fundamentals.md"},
+    {"Control Flow Fundamentals" = [
+      {"If Statements" = "control_flow/if_statements.md"},
+      {"While Loops" = "control_flow/while_loops.md"},
+      {"Composing If and While" = "control_flow/composition.md"},
+    ]},
+  ]},
+  {"Practice" = [
+    {"Conditional Statements" = "conditional-practice.md"},
+    {"Conditionals and Variables" = "conditional-variable-practice.md"},
   ]},
 ]
 

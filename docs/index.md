@@ -20,4 +20,5 @@ This site is a learning resource for **COMP 110: Introduction to Programming** a
 
 ## Practice
 
-1. [Practice with Conditionals and Variables](conditional-variable-practice.md)
+1. [Conditional Statements](conditional-practice.md): Practice one-way, two-way, nested, multiway, and independent conditional decisions.
+2. [Conditionals and Variables](conditional-variable-practice.md): Practice initialization, scope, parameters, return values, and static variables across conditional paths.
