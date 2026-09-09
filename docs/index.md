@@ -10,3 +10,4 @@ This site is a learning resource for **COMP 110: Introduction to Programming** a
 
 * [Function Fundamentals](function_fundamentals.md)
 * [Variable Fundamentals](variable_fundamentals.md)
+<!-- * [Practice with Conditionals and Variables](conditional-variable-practice.md) -->
