@@ -1027,7 +1027,7 @@ def test_control_flow_python_input_timeout_and_reversed_string_diagram() -> None
             computation_runner = page.locator("[data-python-runner]").filter(
                 has=page.locator(
                     ".python-runner__title",
-                    has_text="Approximating Pi with 100,000 Iterations",
+                    has_text="Summing Integers from 110 Through 110,000",
                 ),
             )
             expect(computation_runner).to_have_count(1)
@@ -1038,10 +1038,10 @@ def test_control_flow_python_input_timeout_and_reversed_string_diagram() -> None
             computation_runner.locator(".python-runner__run").click()
             computation_output = computation_runner.locator(".python-runner__output")
             expect(computation_output).to_contain_text(
-                "After 100000 iterations:",
+                "Sum from 110 through 110000:",
                 timeout=30_000,
             )
-            expect(computation_output).to_contain_text("3.1415826536")
+            expect(computation_output).to_contain_text("6050049005")
 
             input_runner.evaluate(
                 """

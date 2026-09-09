@@ -206,25 +206,25 @@ This pattern is a small model of an **event loop**. Interactive programs often r
 
 ### Loops Can Perform Large Computations Quickly
 
-A computer can complete far more iterations than would be practical to trace by hand. The following program uses 100,000 iterations of a mathematical series to approximate pi. Each iteration adds or subtracts the reciprocal of the next odd number. Multiplying the accumulated result by `4` produces the approximation.
+A computer can complete far more iterations than would be practical to trace by hand. The following program adds every integer from `110` through `110_000`, including both endpoints. That range contains `109_891` different numbers. The accumulator `total` holds the sum so far, while `current` advances through the range one integer at a time.
 
-~~~python { runnable=true editable=true title="Approximating Pi with 100,000 Iterations" }
-terms: int = 100_000
-index: int = 0
-quarter_pi: float = 0.0
-sign: float = 1.0
+~~~python { runnable=true editable=true title="Summing Integers from 110 Through 110,000" }
+start: int = 110
+stop: int = 110_000
+current: int = start
+total: int = 0
 
-while index < terms:
-    quarter_pi = quarter_pi + sign / (2 * index + 1)
-    sign = -sign
-    index = index + 1
+while current <= stop:
+    total = total + current
+    current = current + 1
 
-pi_approximation: float = quarter_pi * 4
-print("After " + str(terms) + " iterations:")
-print(round(pi_approximation, 10))
+print("Sum from " + str(start) + " through " + str(stop) + ":")
+print(total)
 ~~~
 
-The loop performs all 100,000 iterations but prints only the completed result. This separation is useful because the computation is fast, while producing and displaying 100,000 lines of output would add substantial unnecessary work.
+The loop body runs exactly `109_891` times. That is nearly 110,000 trips through the same statements! On every iteration, your computer must perform the addition in `total = total + current`; that statement alone requests 109,891 additions. It also performs the addition in `current = current + 1` another 109,891 times. That makes 219,782 addition operations before accounting for the other operations needed to test the loop condition and jump back to it.
+
+At one addition per second, performing just the sum updates by hand would take more than 30 hours without any breaks! The program completes all of that work quickly and prints the final sum, `6_050_049_005`, which is a little over `6.05` billion!
 
 ## Common While Loop Errors
 
