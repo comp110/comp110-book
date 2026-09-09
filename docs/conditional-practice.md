@@ -5,7 +5,7 @@ description: Practice choosing and writing one-way, two-way, nested, multiway, a
 
 This page focuses on choosing and writing conditional control-flow structures. Use [If Statements](control_flow/if_statements.md) as the primary reference. The exercises also use previously introduced [variables](variable_fundamentals.md) and [functions](function_fundamentals.md), but their unfinished work focuses on conditionals.
 
-Each runnable exercise has two steps. First, edit the source code where you see a `TODO`. Then select **Run** to test your changes. Whenever the program reaches an `input(...)` call, it pauses and shows a prompt below the output pane. The text inside `input(...)` identifies the value to enter. Type your response in the input field and press **Enter**. If the code has more than one `input(...)` call, answer the prompts in the order they appear.
+Each runnable exercise has two steps. First, edit the source code where you see a `TODO`. Then select **Run** to test your changes. Whenever the program reaches an `input(...)` call, it pauses and shows a prompt in the output pane. The text inside `input(...)` identifies the value to enter. Type your response in the input field and press **Enter**. If the program asks another question, answer that prompt next. A conditional can cause the program to skip an `input(...)` call.
 
 To test another case, select **Run** again and enter the next test value or set of values. The test values in the instructions below are responses to the program's prompts; do not replace the `input(...)` calls with them.
 
@@ -15,7 +15,7 @@ Reminder: an [`if` statement](control_flow/if_statements.md#boolean-conditions-d
 
 ### You Try: Earn a Streak Bonus
 
-A player earns five bonus points after at least three consecutive wins. Add an `if` statement at the `TODO` that updates `points` only when `earned_bonus` is `True`.
+A game awards `10` points for each win, plus `5` extra points when that win brings the player's streak to at least `3`. This program calculates the points for one just-completed win. Add an `if` statement at the `TODO` that adds the bonus to `points` when `earned_bonus` is `True`.
 
 After editing the code, run it twice. At the **How many games have you won in a row?** prompt, enter `2` on the first run and `3` on the second. The program should report `10` points for `2` and `15` points for `3`.
 
@@ -35,7 +35,7 @@ Reminder: an [`if`/`else` statement](control_flow/if_statements.md#else-provides
 
 ### You Try: Take a Turn in Pig
 
-In the dice game Pig, rolling `1` loses the points collected during the turn. At the `TODO`, add an `if`/`else` statement so `after_roll` returns `0` when `roll` is `1` and `turn_total + roll` otherwise.
+In the dice game Pig, rolling `1` loses the points collected during the current turn; any other roll adds to that turn's total. This function handles one roll of a six-sided die, so enter a roll from `1` to `6`. At the `TODO`, use `if`/`else` to assign `0` to `new_total` when `roll` is `1`, or `turn_total + roll` otherwise. The existing `return` sends the new total back to the game.
 
 After editing the code, run it twice. On the first run, enter `9` at the **What is your current turn total?** prompt, then enter `5` at the **What did you roll?** prompt; the new total should be `14`. On the second run, enter `9` and then `1`; the new total should be `0`.
 
@@ -61,29 +61,31 @@ Reminder: a [nested conditional](control_flow/if_statements.md#conditional-state
 
 ### You Try: Escape the Puzzle Room
 
-The keypad opens the exit when its code is `110`. If the code is wrong, a player with a key can use the backup lock; otherwise, the exit stays shut. At the `TODO`, add a nested `if`/`else` inside the existing outer `else` to assign the two missing messages.
+An escape-room game tries the keypad first. If the player enters `110`, the exit opens immediately. Only a wrong code leads to the backup-key question. Nesting lets that outer path contain both the question and the decision about its answer.
 
-After editing the code, run it three times. Each run asks for the door code first and the backup-key response second. Enter `110` and then `no` to see the keypad-success message, `111` and then `yes` to see the backup-key message, and `111` and then `no` to see the locked message. Enter `yes` and `no` in lowercase, as shown in the prompt. When the code is `110`, the key response does not affect the result.
+At the `TODO`, add an `if`/`else` inside the existing outer `else`. Assign `"The backup key opens the exit."` to `message` when `has_key` is `True`, or `"The exit is still locked."` otherwise.
+
+After editing the code, run it once for each row below. First answer **Enter the three-digit door code:**. Answer **Do you have the backup key? (yes/no)** only if it appears, using lowercase `yes` or `no`.
+
+| Door code | Backup-key response | Expected result |
+| --- | --- | --- |
+| `110` | No second prompt | `The keypad flashes green. You escaped!` |
+| `111` | `yes` | `The backup key opens the exit.` |
+| `111` | `no` | `The exit is still locked.` |
 
 ~~~python { runnable=true editable=true title="You Try: Escape the Puzzle Room" }
-def exit_message(code: int, has_key: bool) -> str:
-    """Describe whether the player can leave the puzzle room."""
-    message: str = ""
+code: str = input("Enter the three-digit door code: ")
+message: str = ""
 
-    if code == 110:
-        message = "The keypad flashes green. You escaped!"
-    else:
-        # TODO: If has_key is True, assign "The backup key opens the exit."
-        # Otherwise, assign "The exit is still locked."
-        pass
+if code == "110":
+    message = "The keypad flashes green. You escaped!"
+else:
+    key_response: str = input("Do you have the backup key? (yes/no) ")
+    has_key: bool = key_response == "yes"
 
-    return message
+    # TODO: Use a nested if/else to assign the backup-key or locked message.
 
-
-code: int = int(input("Enter the three-digit door code: "))
-key_response: str = input("Do you have the backup key? (yes/no) ")
-has_key: bool = key_response == "yes"
-print(exit_message(code=code, has_key=has_key))
+print(message)
 ~~~
 
 ## Practice Multiway Decisions
@@ -92,13 +94,15 @@ Reminder: an [`elif` chain](control_flow/if_statements.md#elif-expresses-a-multi
 
 ### You Try: Flatten a Nested Rating
 
-Replace the nested conditional in `puzzle_rating` with one unnested `if`/`elif`/`elif`/`else` statement. Keep the same four ratings and the conditions that select them.
+A word-puzzle game lets players keep guessing until they solve it. Each completed puzzle earns exactly one rating based on the number of guesses used: **Genius** for `1`, **Impressive** for `2`–`3`, **Solved** for `4`–`6`, and **Persistent** for `7` or more.
 
-After editing the code, run it four times. At the **How many guesses did you use?** prompt, enter `1`, `3`, `5`, and `7`, one value per run. The results should be **Genius**, **Impressive**, **Solved**, and **Better luck next time**, respectively.
+The nested code already produces those ratings, but the decision is hard to scan. Replace its nested conditional with one unnested `if`/`elif`/`elif`/`else` statement, preserving the results.
+
+After editing the code, run it four times. At the **How many guesses did you use?** prompt, enter `1`, `3`, `6`, and `7`, one value per run. The results should be **Genius**, **Impressive**, **Solved**, and **Persistent**, respectively. Use positive whole numbers because the puzzle has been solved.
 
 ~~~python { runnable=true editable=true title="You Try: Flatten a Nested Rating" }
 def puzzle_rating(guesses: int) -> str:
-    """Rate a word puzzle by the number of guesses used."""
+    """Rate a solved word puzzle by the number of guesses used."""
     rating: str = ""
 
     # TODO: Rewrite this as one if/elif/elif/else statement.
@@ -111,7 +115,7 @@ def puzzle_rating(guesses: int) -> str:
             if guesses <= 6:
                 rating = "Solved"
             else:
-                rating = "Better luck next time"
+                rating = "Persistent"
 
     return rating
 
@@ -122,30 +126,41 @@ print(puzzle_rating(guesses=guesses))
 
 ### You Try: Put the Thresholds in Order
 
-This chain has a bug: every passing score receives a `D`. Reorder the complete condition-and-assignment branches from the highest threshold to the lowest. Do not change the comparisons or the letter assigned by each branch.
+An arcade awards only the highest medal earned in a round: **Gold** for at least `90` points, **Silver** for at least `60`, or **Bronze** for at least `30`. Below `30`, the player receives no medal. The current chain has a bug: every score of `30` or more gets Bronze, even when it qualifies for a better medal.
 
-After editing the code, run it four times. At the **Enter a numeric score:** prompt, enter `95`, `85`, `65`, and `30`, one value per run. The program should report grades of `A`, `B`, `D`, and `F`, respectively.
+Reorder the complete condition-and-assignment branches from the highest threshold to the lowest. Keep each comparison paired with its medal, and keep the final `else` last.
+
+After editing the code, run it once for each row below. Enter the score at **How many points did you score?**. These cases test each threshold and the score immediately below it.
+
+| Score | Expected output |
+| --- | --- |
+| `29` | `Medal: No medal yet` |
+| `30` | `Medal: Bronze` |
+| `59` | `Medal: Bronze` |
+| `60` | `Medal: Silver` |
+| `89` | `Medal: Silver` |
+| `90` | `Medal: Gold` |
 
 ~~~python { runnable=true editable=true title="You Try: Put the Thresholds in Order" }
-def letter_grade(score: float) -> str:
-    """Convert a numeric score to a letter grade."""
-    grade: str = ""
+def round_medal(score: int) -> str:
+    """Return the highest medal earned in an arcade round."""
+    medal: str = ""
 
     # TODO: Reorder these branches from the highest threshold to the lowest.
-    if score >= 60.0:
-        grade = "D"
-    elif score >= 80.0:
-        grade = "B"
-    elif score >= 90.0:
-        grade = "A"
+    if score >= 30:
+        medal = "Bronze"
+    elif score >= 60:
+        medal = "Silver"
+    elif score >= 90:
+        medal = "Gold"
     else:
-        grade = "F"
+        medal = "No medal yet"
 
-    return grade
+    return medal
 
 
-score: float = float(input("Enter a numeric score: "))
-print("Letter grade: " + letter_grade(score=score))
+score: int = int(input("How many points did you score? "))
+print("Medal: " + round_medal(score=score))
 ~~~
 
 ## Practice Independent Decisions
@@ -154,9 +169,16 @@ Reminder: [separate `if` statements and an `elif` chain](control_flow/if_stateme
 
 ### You Try: Unlock Every Achievement
 
-A player should see every achievement whose threshold they reached. The current `elif` chain displays only the highest one. Change both `elif` branches to separate `if` statements so every earned achievement is printed. Do not change the three comparisons or messages.
+A player's profile lists all achievements unlocked so far: **First Win** at `1` win, **High Five** at `5`, and **Tenacious Ten** at `10`. A player can earn several of these, so the current `elif` chain hides achievements they should see. Change both `elif` branches to separate `if` statements so every earned achievement is printed. Keep the comparisons and messages as they are.
 
-After editing the code, run it twice. At the **How many games have you won?** prompt, enter `12` on the first run; all three achievement messages should appear. Enter `6` on the second run; **High Five** and **First Win** should appear, but **Tenacious Ten** should not.
+After editing the code, run it once for each row below. Enter the number of wins at **How many games have you won?**. Check which achievement names appear in the output.
+
+| Wins | Expected achievements |
+| --- | --- |
+| `0` | No achievement messages |
+| `1` | First Win |
+| `6` | High Five and First Win |
+| `12` | Tenacious Ten, High Five, and First Win |
 
 ~~~python { runnable=true editable=true title="You Try: Unlock Every Achievement" }
 wins: int = int(input("How many games have you won? "))
