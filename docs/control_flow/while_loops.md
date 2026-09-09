@@ -167,40 +167,42 @@ For any entered string, the first iteration appends its last character, the seco
 
 Sometimes a program does not know the number of iterations in advance. Instead, the loop continues until program state or an external source provides a stopping signal. This is a **condition-controlled loop**.
 
-The following small game always plays its first round. After every round, `input` asks the player what should happen next. The newly entered string is assigned to `response` before Python returns to the while condition.
+The following program keeps a running total of the integers a user enters. It reads the first response before the loop, then continues adding values until the user enters `stop`.
 
-~~~python { runnable=true editable=true title="Playing Until the User Stops" }
-response: str = "play"
-round_number: int = 1
+~~~python { runnable=true editable=true title="Adding Numbers Until the User Stops" }
+total: int = 0
+response: str = input("Enter an integer, or enter stop to finish: ")
 
 while response != "stop":
-    print("Playing round " + str(round_number))
-    round_number = round_number + 1
-    response = input("Press OK to continue, or enter stop: ")
+    total = total + int(response)
+    print("Running total: " + str(total))
+    response = input("Enter an integer, or enter stop to finish: ")
 
-print("Thanks for playing!")
+print("Final total: " + str(total))
 ~~~
 
 ```mermaid
 flowchart LR
-    Initialize["Initialize the state<br/>response = &quot;play&quot;"] --> Test
+    Initialize["Initialize the state<br/>total = 0<br/>response = input(...)"] --> Test
     subgraph Cycle["while loop"]
         direction TB
         Test{"Check for the stop signal<br/>while response != &quot;stop&quot;:"}
-        Work["Run the repeat block<br/>print(&quot;Playing round ...&quot;)"]
+        Add["Add the entered integer<br/>total = total + int(response)"]
+        Report["Display the running total"]
         Update["Read the next response<br/>response = input(...)"]
-        Test -->|True| Work
-        Work --> Update
+        Test -->|True| Add
+        Add --> Report
+        Report --> Update
         Update -->|Test again| Test
     end
-    Test -->|False| Continue["Continue after the loop<br/>print(&quot;Thanks for playing!&quot;)"]
+    Test -->|False| Continue["Continue after the loop<br/>print the final total"]
 ```
 
-This loop has the same shape as the counter-controlled example, but `while response != "stop":` tests input rather than a fixed count. The assignment `response = input(...)` records the next response before control returns to the header. The final `print` remains outside the loop boundary.
+The condition checks the string response before the loop converts it to an integer. When the response is `"stop"`, Python skips the loop body, so `int(response)` is never asked to convert the stopping word. Every integer response is added to `total`, which is an accumulator that preserves the sum across iterations.
 
-When execution reaches `input`, the program pauses and an input field appears beside the prompt in the output area. Type a response and press Enter to send it to the program. Enter `stop` to leave the loop; any other response begins another iteration. Unlike a counter-controlled loop, this program cannot predict in advance how many rounds the player will request.
+When execution reaches `input`, the program pauses and an input field appears beside the prompt in the output area. Enter an integer and press Enter to add it, or enter `stop` to leave the loop. For example, entering `7`, `-2`, and `stop` produces a final total of `5`. Unlike a counter-controlled loop, the program cannot predict in advance how many numbers the user will enter.
 
-This pattern is a small model of an **event loop**. Interactive programs often repeat three broad actions: wait for an event, handle that event, and wait again. Real user-interface event loops involve more machinery, but their repetition is still grounded in the same control-flow idea.
+This pattern is a small model of an **event loop**. Interactive programs often repeat three broad actions: wait for input, handle that input, and wait again. Real user-interface event loops involve more machinery, but their repetition is still grounded in the same control-flow idea.
 
 ### Loops Can Perform Large Computations Quickly
 

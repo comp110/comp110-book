@@ -975,7 +975,7 @@ def test_control_flow_python_input_timeout_and_reversed_string_diagram() -> None
             input_runner = page.locator("[data-python-runner]").filter(
                 has=page.locator(
                     ".python-runner__title",
-                    has_text="Playing Until the User Stops",
+                    has_text="Adding Numbers Until the User Stops",
                 ),
             )
             expect(input_runner).to_have_count(1)
@@ -988,8 +988,9 @@ def test_control_flow_python_input_timeout_and_reversed_string_diagram() -> None
             output = input_runner.locator(".python-runner__output")
             live_input = input_runner.locator(".python-runner__live-input")
             live_input.wait_for(state="visible", timeout=90_000)
-            expect(output).to_contain_text("Playing round 1")
-            expect(output).to_contain_text("Press OK to continue, or enter stop:")
+            expect(output).to_contain_text(
+                "Enter an integer, or enter stop to finish:"
+            )
             expect(input_runner).to_have_attribute(
                 "data-python-runner-state",
                 "waiting-input",
@@ -997,22 +998,28 @@ def test_control_flow_python_input_timeout_and_reversed_string_diagram() -> None
             expect(input_runner.locator(".python-runner__run")).to_be_disabled()
             expect(live_input).to_be_focused()
 
-            live_input.fill("again")
+            live_input.fill("7")
             live_input.press("Enter")
             live_input.wait_for(state="visible", timeout=10_000)
-            expect(output).to_contain_text("Playing round 2")
+            expect(output).to_contain_text("Running total: 7")
             expect(input_runner).to_have_attribute(
                 "data-python-runner-state",
                 "waiting-input",
             )
 
+            live_input.fill("-2")
+            live_input.press("Enter")
+            live_input.wait_for(state="visible", timeout=10_000)
+            expect(output).to_contain_text("Running total: 5")
+
             live_input.fill("stop")
             live_input.press("Enter")
-            expect(output).to_contain_text("Thanks for playing!", timeout=10_000)
+            expect(output).to_contain_text("Final total: 5", timeout=10_000)
             expect(live_input).to_have_count(0)
             expect(input_runner.locator(".python-runner__run")).to_be_enabled()
             expect(input_runner).to_have_attribute("data-python-runner-state", "ready")
-            assert "again" in output.inner_text()
+            assert "7" in output.inner_text()
+            assert "-2" in output.inner_text()
             assert "stop" in output.inner_text()
             assert "OSError" not in output.inner_text()
             assert "EOFError" not in output.inner_text()
