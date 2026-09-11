@@ -21,6 +21,7 @@ nav = [
   {"Practice" = [
     {"Conditional Statements" = "conditional-practice.md"},
     {"Conditionals and Variables" = "conditional-variable-practice.md"},
+    {"while Loops" = "while-practice.md"},    
   ]},
 ]
 
