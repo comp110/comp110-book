@@ -2132,7 +2132,8 @@
       }
       if (/[A-Za-z_]/.test(char)) {
         const match = /^[A-Za-z_]\w*/.exec(source.slice(index));
-        tokens.push({ end: baseOffset + index + match[0].length, type: "identifier", value: match[0], start: baseOffset + index });
+        const type = ["and", "or", "not"].includes(match[0]) ? "operator" : "identifier";
+        tokens.push({ end: baseOffset + index + match[0].length, type, value: match[0], start: baseOffset + index });
         index += match[0].length;
         continue;
       }
@@ -2211,11 +2212,52 @@
 
   function parseExpression(source, lineNumber, baseOffset = 0) {
     const stream = new TokenStream(tokenizeExpression(source, lineNumber, baseOffset), lineNumber);
-    const expression = parseComparison(stream);
+    const expression = parseOr(stream);
     if (stream.peek().type !== "eof") {
       throw new DiagramError(lineNumber, `Unexpected token: ${stream.peek().value}`);
     }
     return expression;
+  }
+
+  // Python precedence, from lowest to highest: or, and, not, comparisons.
+  function parseOr(stream) {
+    return parseBoolean(stream, "or", parseAnd);
+  }
+
+  function parseAnd(stream) {
+    return parseBoolean(stream, "and", parseNot);
+  }
+
+  function parseBoolean(stream, operator, parseOperand) {
+    let node = parseOperand(stream);
+    while (stream.peek().type === "operator" && stream.peek(operator)) {
+      stream.consume();
+      const right = parseOperand(stream);
+      node = {
+        left: node,
+        line: stream.lineNumber,
+        operator,
+        right,
+        span: { from: node.span.from, to: right.span.to },
+        type: "boolean",
+      };
+    }
+    return node;
+  }
+
+  function parseNot(stream) {
+    if (stream.peek().type === "operator" && stream.peek("not")) {
+      const operator = stream.consume();
+      const operand = parseNot(stream);
+      return {
+        line: stream.lineNumber,
+        operator: "not",
+        operand,
+        span: { from: operator.start, to: operand.span.to },
+        type: "unary",
+      };
+    }
+    return parseComparison(stream);
   }
 
   function isComparisonOperator(value) {
@@ -2329,7 +2371,7 @@
         };
       }
     } else if (token.value === "(") {
-      node = parseComparison(stream);
+      node = parseOr(stream);
       const close = stream.expect(")");
       node = {
         ...node,
@@ -2342,7 +2384,7 @@
     while (stream.peek("(") || stream.peek("[")) {
       if (stream.peek("[")) {
         stream.consume();
-        const index = parseComparison(stream);
+        const index = parseOr(stream);
         const close = stream.expect("]");
         node = {
           collection: node,
@@ -2366,13 +2408,13 @@
           if (isKeyword) {
             const name = stream.consume();
             stream.expect("=");
-            const value = parseComparison(stream);
+            const value = parseOr(stream);
             keywords.push({ name: name.value, value });
           } else {
             if (keywords.length) {
               throw new DiagramError(stream.lineNumber, "Positional arguments cannot follow keyword arguments.");
             }
-            args.push(parseComparison(stream));
+            args.push(parseOr(stream));
           }
         } while (stream.match(","));
         close = stream.expect(")");
@@ -2398,10 +2440,31 @@
     }
     if (node.type === "unary") {
       const value = evaluateExpression(node.operand, state);
+      if (node.operator === "not") {
+        const result = makeValue("bool", !isTruthy(value));
+        addStep(state, node.line, `Boolean expression: not ${formatValue(value)} -> ${formatValue(result)}.`, node.span);
+        return result;
+      }
       if (!isNumeric(value)) {
         throw new DiagramError(node.line, `Unary ${node.operator} expects a number.`);
       }
       return makeValue(value.type, -value.value);
+    }
+    if (node.type === "boolean") {
+      const left = evaluateExpression(node.left, state);
+      const shortCircuited = node.operator === "and" ? !isTruthy(left) : isTruthy(left);
+      if (shortCircuited) {
+        addStep(
+          state,
+          node.line,
+          `Boolean expression: ${formatValue(left)} ${node.operator} ... -> ${formatValue(left)} (short-circuited; right operand not evaluated).`,
+          node.span,
+        );
+        return left;
+      }
+      const right = evaluateExpression(node.right, state);
+      addStep(state, node.line, `Boolean expression: ${formatValue(left)} ${node.operator} ${formatValue(right)} -> ${formatValue(right)}.`, node.span);
+      return right;
     }
     if (node.type === "comparison") {
       const left = evaluateExpression(node.left, state);

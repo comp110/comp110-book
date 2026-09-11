@@ -130,6 +130,16 @@
   background: var(--md-code-bg-color);
 }
 
+/* Keep operators such as >= as separate characters in editors and fallbacks. */
+.python-runner .cm-scroller,
+.python-runner .cm-content,
+.python-runner__code,
+.python-runner__code code,
+.python-diagram-runner .python-diagram-runner__source {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "clig" 0, "dlig" 0, "hlig" 0, "calt" 0, "rlig" 0;
+}
+
 .python-runner .cm-editor {
   font-size: 0.85em;
   min-height: 6.5rem;

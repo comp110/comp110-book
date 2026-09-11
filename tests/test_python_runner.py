@@ -1283,7 +1283,7 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
             )
             editor_content = page.locator(".python-diagram-runner__editor .cm-content")
             editor_content.click()
-            page.keyboard.press("Control+A")
+            page.keyboard.press("Meta+A" if sys.platform == "darwin" else "Control+A")
             page.keyboard.type("abc")
             assert page.evaluate(
                 """
@@ -2442,6 +2442,185 @@ def test_python_diagram_runner_supports_type_constructors() -> None:
             )
 
             assert not any(msg.startswith("pageerror:") for msg in messages)
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_python_diagram_runner_supports_boolean_operators() -> None:
+    subprocess.run(
+        [sys.executable, "-m", "zensical", "build", "--clean"],
+        cwd=ROOT,
+        check=True,
+    )
+
+    server, base_url = serve_site()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            errors: list[str] = []
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            page.goto(f"{base_url}/python-diagram/", wait_until="domcontentloaded")
+            runner = page.locator("[data-python-diagram-runner]").first
+            runner.locator(".cm-editor").wait_for(state="visible", timeout=60_000)
+            output = runner.locator(".python-runner__output")
+
+            def run_source(code: str) -> dict:
+                runner.evaluate(
+                    "(element, source) => element.pythonDiagramRunner.source.setValue(source)",
+                    code,
+                )
+                runner.locator(".python-diagram-runner__run").click()
+                return runner.evaluate(
+                    """
+                    (element) => {
+                      const state = element.pythonDiagramRunner;
+                      const snapshot = state.trace[state.trace.length - 1].snapshot;
+                      const source = state.source.value;
+                      return {
+                        bindings: Object.fromEntries(snapshot.frames[0].bindings.map(
+                          (binding) => [binding.name, binding.value],
+                        )),
+                        calls: snapshot.frames.slice(1).map((frame) => frame.name),
+                        output: snapshot.output,
+                        steps: state.trace.map((step) => ({
+                          failed: step.failed,
+                          line: step.line,
+                          message: step.message,
+                          selected: step.highlight
+                            ? source.slice(step.highlight.from, step.highlight.to)
+                            : null,
+                        })),
+                      };
+                    }
+                    """,
+                )
+
+            # Annotations check that and/or preserve operand types while not returns bool.
+            cases = [
+                ("True and True", "bool", "True"),
+                ("True and False", "bool", "False"),
+                ("False and True", "bool", "False"),
+                ("False and False", "bool", "False"),
+                ("True or True", "bool", "True"),
+                ("True or False", "bool", "True"),
+                ("False or True", "bool", "True"),
+                ("False or False", "bool", "False"),
+                ("not True", "bool", "False"),
+                ("not False", "bool", "True"),
+                ("not 0", "bool", "True"),
+                ("not -1", "bool", "False"),
+                ("not 0.0", "bool", "True"),
+                ("not 2.5", "bool", "False"),
+                ('not ""', "bool", "True"),
+                ('not "False"', "bool", "False"),
+                ("not None", "bool", "True"),
+                ("not not 1", "bool", "True"),
+                ("not not not 1", "bool", "False"),
+                ("True or False and False", "bool", "True"),
+                ("False and True or True", "bool", "True"),
+                ("(True or False) and False", "bool", "False"),
+                ("not True and False", "bool", "False"),
+                ("not False or True", "bool", "True"),
+                ("not (True and False)", "bool", "True"),
+                ("not 2 == 1", "bool", "True"),
+                ("not 1 + 1 > 3 and 4 / 2 == 2", "bool", "True"),
+                ("1 < 2 and 3 >= 3 or 4 != 4", "bool", "True"),
+                ("0 and 9", "int", "0"),
+                ("2 and 9", "int", "9"),
+                ("0 or 9", "int", "9"),
+                ("2 or 9", "int", "2"),
+                ('"" or "fallback"', "str", '"fallback"'),
+                ('"first" or "last"', "str", '"first"'),
+                ('"" and 9', "str", '""'),
+                ('True and "value"', "str", '"value"'),
+                ("0.0 and 1", "float", "0.0"),
+                ("False or 2.5", "float", "2.5"),
+                ("None and 1", "None", "None"),
+                ("False or None", "None", "None"),
+                ('"not"', "str", '"not"'),
+                ('"and" or "or"', "str", '"and"'),
+                ('not "not"', "bool", "False"),
+                ('"abc"[0 or 1]', "str", '"b"'),
+                ('str(True and not False)', "str", '"True"'),
+            ]
+            result = run_source("\n".join(
+                f"result_{index}: {type_name} = {expression}"
+                for index, (expression, type_name, _) in enumerate(cases)
+            ))
+            expect(output).to_contain_text("Finished diagram trace.")
+            assert result["bindings"] == {
+                f"result_{index}": expected
+                for index, (_, _, expected) in enumerate(cases)
+            }
+            assert any(
+                step["message"] == "Boolean expression: not True -> False."
+                and step["selected"] == "not True"
+                for step in result["steps"]
+            )
+            assert any(
+                step["message"] == "Boolean expression: True and False -> False."
+                and step["selected"] == "True and False"
+                for step in result["steps"]
+            )
+
+            result = run_source(
+                'def mark(label: str, value: int) -> int:\n'
+                '    print(label)\n'
+                '    return value\n'
+                'a: int = mark("and-left", 0) and mark("and-skipped", 1) and missing()\n'
+                'b: int = mark("or-left", 1) or mark("or-skipped", 0) or missing()\n'
+                'c: int = mark("and-first", 1) and mark("and-second", 2) and mark("and-third", 3)\n'
+                'd: int = mark("or-first", 0) or mark("or-second", 0) or mark("or-third", 4)\n'
+                'negated: bool = not mark("not", 0)\n'
+                'e: bool = False and (1 / 0)\n'
+                'f: bool = True or "x"[10]\n'
+                'g: bool = False and missing\n'
+                'h: bool = True or missing()\n'
+                'alias = None or mark\n'
+                'order: int = alias(label="keyword", value=0 or 5)\n'
+                'nothing: bool = not mark\n'
+                'if not a and b:\n'
+                '    print("branch")\n'
+                'else:\n'
+                '    print("wrong branch")\n'
+                'i: int = 0\n'
+                'while i < 2 and not i == 2:\n'
+                '    i = i + 1\n'
+                'print(a, b, c, d, negated, e, f, g, h, order, nothing, i)\n'
+            )
+            expect(output).to_contain_text("Finished diagram trace.")
+            assert result["output"] == [
+                "and-left", "or-left", "and-first", "and-second", "and-third",
+                "or-first", "or-second", "or-third", "not", "keyword", "branch",
+                "0 1 3 4 True False True False True 5 False 2",
+            ]
+            assert result["calls"] == ["mark"] * 10
+            assert result["bindings"]["alias"] == result["bindings"]["mark"]
+            assert any(
+                "short-circuited; right operand not evaluated" in step["message"]
+                and step["selected"] == "False and (1 / 0)"
+                and step["line"] == 9
+                for step in result["steps"]
+            )
+
+            # A needed right operand still reports its own error and highlight.
+            for expression in ("True and missing", "False or missing"):
+                result = run_source(f"answer = {expression}\n")
+                expect(output).to_have_class(re.compile(r"\bis-error\b"))
+                expect(output).to_contain_text("NameError on Line 1: missing is not defined.")
+                assert result["steps"][-1]["selected"] == "missing"
+
+            # Short-circuiting skips evaluation, not syntax validation.
+            for expression in ("False and", "True or", "not", "True and or False"):
+                result = run_source(f"answer = {expression}\n")
+                expect(output).to_have_class(re.compile(r"\bis-error\b"))
+                assert result["steps"][-1]["failed"] is True
+                assert result["steps"][-1]["line"] == 1
+
+            assert not errors
             browser.close()
     finally:
         server.shutdown()
