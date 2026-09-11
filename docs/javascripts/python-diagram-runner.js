@@ -240,6 +240,7 @@
         highlightStyle,
         indentUnit,
         indentWithTab,
+        insertNewlineKeepIndent,
         keymap,
         lineNumbers,
         python,
@@ -264,7 +265,9 @@
           EditorView.contentAttributes.of({ "aria-readonly": runnerState.editable ? "false" : "true" }),
           drawSelection(),
           indentUnit.of("    "),
-          keymap.of([indentWithTab]),
+          keymap.of(runnerState.editable
+            ? [indentWithTab, { key: "Enter", run: insertNewlineKeepIndent }]
+            : [indentWithTab]),
           python(),
           syntaxHighlighting(highlightStyle, { fallback: true }),
           EditorView.lineWrapping,
@@ -335,6 +338,7 @@
         highlightStyle: createHighlightStyle(language.HighlightStyle, highlight.tags),
         indentUnit: language.indentUnit,
         indentWithTab: commands.indentWithTab,
+        insertNewlineKeepIndent: commands.insertNewlineKeepIndent,
         keymap: view.keymap,
         lineNumbers: view.lineNumbers,
         python: pythonLanguage.python,

@@ -1273,6 +1273,7 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         highlightStyle: createHighlightStyle(language.HighlightStyle, highlight.tags),
         indentUnit: language.indentUnit,
         indentWithTab: commands.indentWithTab,
+        insertNewlineKeepIndent: commands.insertNewlineKeepIndent,
         keymap: view.keymap,
         cpp: cppLanguage.cpp,
         lineNumbers: view.lineNumbers,
@@ -2147,6 +2148,7 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         highlightStyle,
         indentUnit,
         indentWithTab,
+        insertNewlineKeepIndent,
         keymap,
         lineNumbers,
         python,
@@ -2157,12 +2159,15 @@ def distance(left: tuple[float, float], right: tuple[float, float]) -> float: ..
         return;
       }
 
-      const languageExtension = widget.matches("[data-c-runner], [data-c-terminal-runner]") ? cpp() : python();
+      const isPython = !widget.matches("[data-c-runner], [data-c-terminal-runner]");
+      const languageExtension = isPython ? python() : cpp();
       const isEditable = runnerIsEditable(widget);
       const extensions = [
         lineNumbers(),
         indentUnit.of("    "),
-        keymap.of([indentWithTab]),
+        keymap.of(isPython && isEditable
+          ? [indentWithTab, { key: "Enter", run: insertNewlineKeepIndent }]
+          : [indentWithTab]),
         languageExtension,
         syntaxHighlighting(highlightStyle, { fallback: true }),
         diagnosticField,

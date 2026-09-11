@@ -601,6 +601,10 @@ def test_runnable_python_examples_are_editable_and_run() -> None:
                 """
             )
             assert readonly_text == readonly_source
+            page.keyboard.press("Enter")
+            assert readonly_runner.evaluate(
+                "(element) => element.pythonRunnerEditor.state.doc.toString()",
+            ) == readonly_source
             expect(readonly_runner.locator(".python-runner__line-highlight")).to_have_count(2)
 
             page.locator(".cm-editor").first.click()
@@ -1136,6 +1140,75 @@ def test_control_flow_python_input_timeout_and_reversed_string_diagram() -> None
         server.server_close()
 
 
+def test_python_editors_preserve_indentation_on_enter() -> None:
+    subprocess.run(
+        [sys.executable, "-m", "zensical", "build", "--clean"],
+        cwd=ROOT,
+        check=True,
+    )
+
+    server, base_url = serve_site()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            errors: list[str] = []
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            for route, selector in (
+                ("python-functions", "[data-python-runner]"),
+                ("python-diagram", "[data-python-diagram-runner]"),
+            ):
+                page.goto(f"{base_url}/{route}/", wait_until="domcontentloaded")
+                runner = page.locator(selector).first
+                runner.locator(".cm-editor").wait_for(state="visible", timeout=60_000)
+                for code, indentation in (
+                    ('print("top level")', ""),
+                    ('def main() -> None:\n    print("first")', "    "),
+                    ('def main() -> None:\n    if True:\n        print("nested")', "        "),
+                    ('def main() -> None:\n    return', "    "),
+                    ('def main() -> None:\n    # comment', "    "),
+                    ('def main() -> None:\n    ', "    "),
+                    ('def main() -> None:\n    print("body")\nmain()', ""),
+                ):
+                    runner.evaluate(
+                        """
+                        (element, code) => {
+                          const editor = element.pythonRunnerEditor || element.pythonDiagramRunner.editor;
+                          editor.dispatch({
+                            changes: { from: 0, to: editor.state.doc.length, insert: code },
+                            selection: { anchor: code.length },
+                          });
+                          editor.focus();
+                        }
+                        """,
+                        code,
+                    )
+                    # Consecutive Enters also preserve indentation on an empty line.
+                    for _ in range(2):
+                        page.keyboard.press("Enter")
+                        code += "\n" + indentation
+                        assert runner.evaluate(
+                            """
+                            (element) => {
+                              const editor = element.pythonRunnerEditor || element.pythonDiagramRunner.editor;
+                              return {
+                                focused: editor.hasFocus,
+                                selection: editor.state.selection.main.anchor,
+                                value: editor.state.doc.toString(),
+                              };
+                            }
+                            """,
+                        ) == {"focused": True, "selection": len(code), "value": code}
+                    page.keyboard.type('print("next")')
+                    assert runner.locator(".cm-line").last.text_content() == indentation + 'print("next")'
+
+            assert not errors
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_python_diagram_runner_steps_and_reports_errors() -> None:
     subprocess.run(
         [sys.executable, "-m", "zensical", "build", "--clean"],
@@ -1272,6 +1345,10 @@ def test_python_diagram_runner_steps_and_reports_errors() -> None:
                 """,
             )
             assert static_text == static_source
+            page.keyboard.press("Enter")
+            assert static_diagram.evaluate(
+                "(element) => element.pythonDiagramRunner.source.value",
+            ) == static_source
             page.evaluate("document.querySelector('#static-python-diagram-test').remove()")
 
             original_source = page.evaluate(
