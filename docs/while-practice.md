@@ -90,12 +90,13 @@ roll: int = int(input("What did you roll? "))
 while False:
     turn_total = turn_total + roll
     print("Turn total: " + str(turn_total))
-    roll = int(input("What did you roll? "))
+    if turn_total < 20:
+        roll = int(input("What did you roll? "))
 
 print("Your turn ends with " + str(turn_total) + " points.")
 ~~~
 
-### You Try: Count the Vowels
+### You Try: Count the Lowercase Vowels
 
 Complete the `if` condition so that `count_vowels` counts every lowercase vowel. The condition already checks for `"a"` and `"e"`; extend it with `or` so that it also matches `"i"`, `"o"`, and `"u"`. Try `programming` and `loop`; the program should report `3` and `2` vowels.
 
@@ -116,7 +117,7 @@ def count_vowels(text: str) -> int:
 
 
 text: str = input("Enter a word: ")
-print("Vowels: " + str(count_vowels(text=text)))
+print("Lowercase vowels: " + str(count_vowels(text=text)))
 ~~~
 
 ## Practice Condition-Controlled Loops
