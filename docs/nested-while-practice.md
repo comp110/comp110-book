@@ -63,6 +63,26 @@ sequence: str = input("Enter a DNA sequence: ")
 motif: str = input("Enter a motif to search for: ")
 print("Appearances: " + str(count_motif(sequence=sequence, motif=motif)))
 ~~~
+
+
+If you are not sure where to start, open the hints one at a time and try again after each.
+ 
+??? tip "Hint 1: What does each variable keep track of?"
+ 
+    `start` is the index in `sequence` where the current attempt begins, and it is already handled by the outer loop. `offset` is how many characters of `motif` have matched so far during this attempt. The character of `sequence` being compared is at index `start + offset`, and the character of `motif` being compared is at index `offset`.
+ 
+??? tip "Hint 2: Trace one attempt by hand"
+ 
+    Take `sequence = "GATTACAGATCAT"`, `motif = "GAT"`, and `start = 0`. Compare `sequence[0]` with `motif[0]`, then `sequence[1]` with `motif[1]`, then `sequence[2]` with `motif[2]`. All three match, so `offset` should end at `3`. Now try `start = 3`: `sequence[3]` is `T` and `motif[0]` is `G`, so the very first comparison fails and `offset` should stay at `0`.
+ 
+??? tip "Hint 3: Write the inner while condition"
+ 
+    The inner loop should continue while two things are both true: there is still a character of `motif` left to compare, and the current pair of characters is equal. Combine those two comparisons with `and`. Put the length check first so that `motif[offset]` is never read once `offset` reaches `len(motif)`.
+ 
+??? tip "Hint 4: Write the inner repeat block and the check afterward"
+ 
+    The only statement the inner repeat block needs is `offset = offset + 1`. After the inner loop, `offset` equals `len(motif)` exactly when every character matched. Use an `if` statement with that comparison to decide whether to add `1` to `count`.
+ 
  
 The outer condition `start + len(motif) <= len(sequence)` stops the search before a starting index where the motif would run past the end of the sequence. In the inner condition, the length check comes first: once `offset` reaches `len(motif)`, the `and` expression evaluates to `False` without reading `motif[offset]` at an invalid index. Trace `GATTACAGATCAT` with `GAT` and notice that the inner loop ends after its first comparison at most starting indices, but reaches `offset == 3` at indices `0` and `7`.
  
