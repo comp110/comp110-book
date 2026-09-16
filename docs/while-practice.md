@@ -79,19 +79,20 @@ The first expression evaluates to `True` because both comparisons evaluate to `T
 
 ### You Try: Keep Rolling in Pig
 
-In this version of the dice game Pig, a turn continues until the player rolls a `1` or the turn total reaches `20`. Replace the placeholder condition with a condition that uses `and`. Enter rolls of `5`, `6`, and `1`; the program should report turn totals of `5` and `11` before the turn ends with `11` points. Enter four rolls of `6`; the turn should end with `24` points without asking for a fifth roll.
+In this version of the dice game Pig, a turn should continue until the player rolls a `1` or the turn total reaches `20`. Currently, the repeat block will only execute once, because `in_turn` is reassigned to `False` at the end of the repeat block. Replace the right-hand side of `in_turn = False` with a condition that uses `and` to continue iterating as long as the player didn't roll a 1 and the turn total is less than 20. Enter rolls of `5`, `6`, and `1`; the program should report that the user's turn ended with `11` points. Enter four rolls of `6`; the turn should end with `24` points without asking for a fifth roll.
 
 ~~~python { runnable=true editable=true title="You Try: Keep Rolling in Pig" }
 turn_total: int = 0
-roll: int = int(input("What did you roll? "))
+roll: int
+in_turn: bool = True
 
-# TODO: Replace False with a condition that evaluates to True while
-# roll is not 1 and turn_total is less than 20.
-while False:
-    turn_total = turn_total + roll
-    print("Turn total: " + str(turn_total))
-    if turn_total < 20:
-        roll = int(input("What did you roll? "))
+while in_turn:
+    roll = int(input("What did you roll? "))
+    if roll != 1:
+        turn_total = turn_total + roll
+    # TODO: Replace False with a condition that evaluates to True while
+    # roll is not 1 and turn_total is less than 20.
+    in_turn = False
 
 print("Your turn ends with " + str(turn_total) + " points.")
 ~~~
