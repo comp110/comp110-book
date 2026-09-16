@@ -17,12 +17,18 @@ nav = [
       {"While Loops" = "control_flow/while_loops.md"},
       {"Composing If and While" = "control_flow/composition.md"},
     ]},
+    # {"List Fundamentals" = "list_fundamentals.md"},
   ]},
   {"Practice" = [
     {"Conditional Statements" = "conditional-practice.md"},
     {"Conditionals and Variables" = "conditional-variable-practice.md"},
     {"while Loops" = "while-practice.md"}, 
-    {"Nested while Loops" = "nested-while-practice.md"},       
+    {"Nested while Loops" = "nested-while-practice.md"},  
+    {"Lists" = [
+      # {"List Fundamentals" = "lists/list-fundamentals-practice.md"},
+      {"Lists and while Loops" = "lists/list-while-practice.md"},
+      # {"Lists and for Loops" = "lists/list-for-loop-practice.md"},
+    ]},
   ]},
 ]
 
