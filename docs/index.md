@@ -23,3 +23,5 @@ This site is a learning resource for **COMP 110: Introduction to Programming** a
 1. [Conditional Statements](conditional-practice.md): Practice one-way, two-way, nested, multiway, and independent conditional decisions.
 2. [Conditionals and Variables](conditional-variable-practice.md): Practice initialization, scope, parameters, return values, and static variables across conditional paths.
 3. [while Loops](while-practice.md): Practice writing counter-controlled and condition-controlled while loops, combining conditions with Boolean operators, composing loops with conditionals, and repairing common loop errors.
+3. [Nested while Loops](nested-while-practice.md): Practice writing counter-controlled and condition-controlled while loops, combining conditions with Boolean operators, composing loops with conditionals, and repairing common loop errors.
+
