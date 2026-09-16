@@ -258,7 +258,7 @@ The expression `table[row]` uses subscription notation to read one row, which is
 
 ### You Try: Total for Each Player
 
-Write `row_totals`, which returns a new list containing the total of each row. For the `points` list above, the result should be `[23, 16]`. Use the inner loop to accumulate one row's total, then append that total to the result after the inner loop ends.
+Write `row_totals`, which returns a new list containing the total of each row. For the `points` list below, the result should be `[23, 16]`. Use the inner loop to accumulate one row's total, then append that total to the result after the inner loop ends.
 
 ~~~python { runnable=true editable=true title="You Try: Row Totals" }
 def row_totals(table: list[list[int]]) -> list[int]:
