@@ -313,7 +313,7 @@ flowchart LR
 ```
 
 The stopping word is never appended, because the condition evaluates to `False` before the repeat block is reached for that response.
-
+<!-- 
 ## Iterating Through a List with a `for` Loop
 
 Visiting every element of a list, in order, is so common that Python provides a second kind of loop for exactly that job. Where a `while` loop repeats as long as a condition evaluates to `True`, a **`for` loop** repeats once for each element of a list.
@@ -341,21 +341,6 @@ Python evaluates a `for` loop as follows:
 1. Evaluate the list expression after `in` to find the list to visit.
 2. If any elements remain unvisited, assign the next element to the loop variable and execute the repeat block. Otherwise, leave the loop.
 3. After the repeat block completes, return to step 2.
-
-```mermaid
-flowchart LR
-    Start["Evaluate the list<br/>for word in words:"] --> Test
-    subgraph Cycle["for loop"]
-        direction TB
-        Test{"Are any elements unvisited?"}
-        Assign["Assign the next element<br/>word = ..."]
-        Work["Run the repeat block<br/>print(word)"]
-        Test -->|Yes| Assign
-        Assign --> Work
-        Work -->|Next element| Test
-    end
-    Test -->|No| Continue["Continue after the loop<br/>print(&quot;The loop is complete.&quot;)"]
-```
 
 There is no counter to initialize, no condition to write, and no update statement at the end of the repeat block. Python performs all three of those steps for us. The loop variable takes the values `"apple"`, then `"banana"`, then `"cherry"`, and the loop ends after the repeat block has been executed for the last element. If the list is empty, the repeat block is never executed, just as a `while` loop performs zero iterations when its condition is `False` from the start.
 
@@ -493,7 +478,7 @@ third.append("z")
 print(first)
 print(second)
 print(third)
-~~~
+~~~ -->
 
 ## Common List Errors
 
@@ -526,7 +511,7 @@ The last valid index of a list is `len(items) - 1`. A loop condition of `i <= le
 - **`len`**: The function that returns the number of elements in a list.
 - **`append`**: The method that adds an element to the end of a list and returns `None`.
 - **`pop`**: The method that removes and returns an element; the last element by default, or the element at a given index.
-- **`for` loop**: A loop written `for <variable> in <list>:` whose repeat block is executed once for each element of the list, assigning each element to the loop variable in turn.
+<!-- - **`for` loop**: A loop written `for <variable> in <list>:` whose repeat block is executed once for each element of the list, assigning each element to the loop variable in turn.
 - **Loop variable**: The variable a `for` loop assigns before each iteration.
-- **`range`**: A function that produces the integers from `0` up to, but not including, its argument; `range(len(items))` produces every valid index of `items`.
+- **`range`**: A function that produces the integers from `0` up to, but not including, its argument; `range(len(items))` produces every valid index of `items`. -->
 - **`IndexError`**: The error Python reports when a subscription or `pop` uses an index that does not exist.

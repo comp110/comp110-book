@@ -3,9 +3,9 @@ title: Lists and while Loops Practice
 description: Practice using while loops to read, count, search, and build lists, including nested loops over 2D lists.
 ---
 
-<!-- In [List Fundamentals](list-fundamentals-practice.md), you learned to initialize a list, read and change an element with subscription notation, and add or remove elements with `append` and `pop`. Each of those examples worked with one element at a time. This page combines lists with `while` loops so that a program can visit every element of a list, no matter how many it holds. -->
+In [List Fundamentals](list-fundamentals-practice.md), you learned to initialize a list, read and change an element with subscription notation, and add or remove elements with `append` and `pop`. Each of those examples worked with one element at a time. This page combines lists with `while` loops so that a program can visit every element of a list, no matter how many it holds. -->
 
-<!-- ## Walking Through a List with an Index
+## Walking Through a List with an Index
 
 A `while` loop and an index variable let us visit every element of a list, one at a time. The index starts at `0`, the repeat block reads the element at that index, and the index is increased by `1` at the end of each iteration. The loop ends when the condition `i < len(items)` evaluates to `False`, which happens as soon as `i` reaches the number of elements.
 
@@ -20,7 +20,7 @@ while i < len(words):
     i = i + 1
 ~~~
 
-As in List Fundamentals, `words[i]` is subscription notation, and `len(words)` evaluates to the number of elements. Notice that the last valid index is `2` even though the list has `3` elements. Using `i <= len(words)` as the condition would cause the repeat block to be executed one extra time with `i` equal to `3`, and reading `words[3]` would produce an `IndexError`. -->
+As in List Fundamentals, `words[i]` is subscription notation, and `len(words)` evaluates to the number of elements. Notice that the last valid index is `2` even though the list has `3` elements. Using `i <= len(words)` as the condition would cause the repeat block to be executed one extra time with `i` equal to `3`, and reading `words[3]` would produce an `IndexError`.
 
 ### You Try: Print Each Element with Its Index
 
@@ -110,7 +110,7 @@ print(count_passing(scores=[72.0, 88.5, 64.0, 95.0], threshold=70.0))
 ~~~
 
 The call above should print `3`.
-<!-- 
+
 ## Finding a Maximum
 
 To find the largest value in a list, keep track of the largest value seen so far. The tracking variable is initialized to the first element, and the loop begins at index `1`. Whenever an element is greater than the value seen so far, that element replaces it.
@@ -130,7 +130,7 @@ def high_score(scores: list[int]) -> int:
 print(high_score(scores=[42, 87, 61, 87, 15]))
 ~~~
 
-Step through the diagram and count how many times the assignment `best = scores[i]` is executed. The second `87` does not cause an assignment because `87 > 87` evaluates to `False`. -->
+Step through the diagram and count how many times the assignment `best = scores[i]` is executed. The second `87` does not cause an assignment because `87 > 87` evaluates to `False`.
 
 ### You Try: Index of the Longest Word
 
@@ -147,7 +147,7 @@ print(longest_word_index(words=["hi", "hello", "hey", "howdy"]))
 ~~~
 
 The call above should print `1`.
-<!-- 
+
 ## Searching a List
 
 Sometimes we need to know whether a list contains a particular value. The loop compares each element to the value being searched for. As soon as a match is found, the function can `return True` immediately; there is no need to look at the rest of the list. If the loop ends without a match, the function returns `False` after the loop.
@@ -169,7 +169,7 @@ print(already_guessed(letter="e", guesses=["a", "e", "t"]))
 print(already_guessed(letter="s", guesses=["a", "e", "t"]))
 ~~~
 
-Step through the first call. The `return True` statement ends the function call during the second iteration, so the third element is never read. Then step through the second call and notice that `return False` is reached only after the condition `i < len(guesses)` evaluates to `False`. -->
+Step through the first call. The `return True` statement ends the function call during the second iteration, so the third element is never read. Then step through the second call and notice that `return False` is reached only after the condition `i < len(guesses)` evaluates to `False`.
 
 ### You Try: Find the Index of a Value
 
@@ -224,7 +224,7 @@ print(doubled(values=[1, 4, 10]))
 ~~~
 
 The call above should print `[2, 8, 20]`.
-<!-- 
+
 ## Nested While Loops and 2D Lists
 
 A list can contain other lists. A `list[list[int]]` is often called a **2D list** because it can be pictured as a grid with rows and columns. The outer list holds the rows, and each row is itself a list of values.
@@ -254,7 +254,7 @@ points: list[list[int]] = [
 print(grand_total(table=points))
 ~~~
 
-The expression `table[row]` uses subscription notation to read one row, which is a `list[int]`. The expression `table[row][col]` then reads a single `int` from that row. Step through the diagram and notice how `col` returns to `0` when `row` becomes `1`. -->
+The expression `table[row]` uses subscription notation to read one row, which is a `list[int]`. The expression `table[row][col]` then reads a single `int` from that row. Step through the diagram and notice how `col` returns to `0` when `row` becomes `1`.
 
 ### You Try: Total for Each Player
 
@@ -273,6 +273,38 @@ points: list[list[int]] = [
 ]
 print(row_totals(table=points))
 ~~~
+
+??? success "Solution and Diagram"
+
+    The following is one solution for the Total for Each Player exercise.
+
+    ~~~python_diagram_runner { editable=true title="Total for Each Player Diagram" }
+    def row_totals(table: list[list[int]]) -> list[int]:
+        """Build a list holding the total of each row."""
+
+        totals: list[int] = []
+        row_i: int = 0
+
+        while row_i < len(table):
+            row_tot: int = 0
+            val_i: int = 0
+
+            while val_i < len(table[row_i]):
+                row_tot += table[row_i][val_i]
+                val_i += 1
+
+            totals.append(row_tot)
+            row_i += 1
+
+        return totals
+
+
+    points: list[list[int]] = [
+        [8, 0, 15],
+        [12, 4, 0],
+    ]
+    print(row_totals(table=points))
+    ~~~
 
 ### Displaying a Grid
 
@@ -324,6 +356,37 @@ print(count_marks(board=game, mark="_"))
 
 The calls above should print `4` and then `2`.
 
+??? success "Solution and Diagram"
+
+    The following is one solution for the Count a Player's Marks exercise. Stepping through both calls would take more steps than the diagram can display, so only the first call is shown here; try the second call, `count_marks(board=game, mark="_")`, in the practice cell above.
+
+    ~~~python_diagram_runner { editable=true title="Count a Player's Marks Diagram" }
+    def count_marks(board: list[list[str]], mark: str) -> int:
+        """Count how many cells contain mark."""
+        count: int = 0
+        row: int = 0
+
+        while row < len(board):
+            col: int = 0
+
+            while col < len(board[row]):
+                if board[row][col] == mark:
+                    count += 1
+                col += 1
+
+            row += 1
+
+        return count
+
+
+    game: list[list[str]] = [
+        ["X", "O", "X"],
+        ["_", "X", "O"],
+        ["O", "_", "X"],
+    ]
+    print(count_marks(board=game, mark="X"))
+    ~~~
+
 ### Challenge: Is a Row Full?
 
 Write `row_is_full`, which returns `True` when every cell in row `row_index` of `board` is equal to `mark`. Return `False` as soon as one cell in that row does not match, and return `True` only after the loop has checked every cell. Only one loop is needed, because `row_index` already identifies the row.
@@ -345,6 +408,32 @@ print(row_is_full(board=game, row_index=1, mark="O"))
 ~~~
 
 The calls above should print `True` and then `False`. Once this works, consider how you could call it from another loop to check every row of the board.
+
+??? success "Solution and Diagram"
+
+    The following is one solution for the Is a Row Full? exercise.
+
+    ~~~python_diagram_runner { editable=true title="Is a Row Full Diagram" }
+    def row_is_full(board: list[list[str]], row_index: int, mark: str) -> bool:
+        """Check whether every cell in one row contains mark."""
+        col: int = 0
+
+        while col < len(board[row_index]):
+            if board[row_index][col] != mark:
+                return False
+            col += 1
+
+        return True
+
+
+    game: list[list[str]] = [
+        ["X", "X", "X"],
+        ["_", "O", "O"],
+        ["O", "_", "X"],
+    ]
+    print(row_is_full(board=game, row_index=0, mark="X"))
+    print(row_is_full(board=game, row_index=1, mark="O"))
+    ~~~
 
 ## Trace These Programs
 

@@ -1056,6 +1056,10 @@
   }
 
   function parseSourceLines(source) {
+    return mergeContinuationLines(parsePhysicalLines(source));
+  }
+
+  function parsePhysicalLines(source) {
     const lines = [];
     const normalized = source.replace(/\r\n?/g, "\n");
     let startOffset = 0;
@@ -1079,6 +1083,112 @@
     });
 
     return lines;
+  }
+
+  // Python allows a statement to continue across physical lines while a
+  // bracket is left open, e.g. a multi-line list literal. Group consecutive
+  // physical lines into a single logical line whenever that happens so the
+  // rest of the interpreter can keep treating "one line" as "one statement".
+  function mergeContinuationLines(physicalLines) {
+    const merged = [];
+    let index = 0;
+    while (index < physicalLines.length) {
+      let depth = bracketDepthDelta(physicalLines[index].code);
+      let cursor = index + 1;
+      while (depth > 0 && cursor < physicalLines.length) {
+        depth += bracketDepthDelta(physicalLines[cursor].code);
+        cursor += 1;
+      }
+      merged.push(combineLineGroup(physicalLines.slice(index, cursor)));
+      index = cursor;
+    }
+    return merged;
+  }
+
+  function bracketDepthDelta(code) {
+    let depth = 0;
+    let quote = null;
+    let escaped = false;
+    for (let index = 0; index < code.length; index += 1) {
+      const char = code[index];
+      if (quote) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === "\\") {
+          escaped = true;
+        } else if (char === quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (char === "'" || char === '"') {
+        quote = char;
+      } else if (char === "(" || char === "[" || char === "{") {
+        depth += 1;
+      } else if (char === ")" || char === "]" || char === "}") {
+        depth -= 1;
+      }
+    }
+    return depth;
+  }
+
+  function combineLineGroup(group) {
+    if (group.length === 1) {
+      return group[0];
+    }
+    const first = group[0];
+    const raw = group.map((line) => line.raw).join("\n");
+    const code = maskComments(raw);
+    const trimmedStart = code.match(/^\s*/)[0].length;
+    return {
+      code,
+      codeEnd: first.startOffset + code.length,
+      codeStart: first.startOffset + trimmedStart,
+      indent: first.indent,
+      indentChars: first.indentChars,
+      number: first.number,
+      raw,
+      startOffset: first.startOffset,
+      trimmed: code.trim(),
+    };
+  }
+
+  // Like stripInlineComment, but preserves string length/positions by
+  // blanking comment characters instead of removing them, so absolute
+  // offsets computed against `raw` stay valid for a multi-line `code`.
+  function maskComments(text) {
+    let result = "";
+    let quote = null;
+    let escaped = false;
+    for (let index = 0; index < text.length; index += 1) {
+      const char = text[index];
+      if (quote) {
+        result += char;
+        if (escaped) {
+          escaped = false;
+        } else if (char === "\\") {
+          escaped = true;
+        } else if (char === quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (char === "'" || char === '"') {
+        quote = char;
+        result += char;
+        continue;
+      }
+      if (char === "#") {
+        while (index < text.length && text[index] !== "\n") {
+          result += " ";
+          index += 1;
+        }
+        index -= 1;
+        continue;
+      }
+      result += char;
+    }
+    return result;
   }
 
   function lineCodeSpan(line) {
@@ -1203,7 +1313,7 @@
   }
 
   function parseFunctionDefinition(line) {
-    const match = /^def\s+([A-Za-z_]\w*)\s*\((.*)\)\s*(?:->\s*([A-Za-z_]\w*))?\s*:\s*$/.exec(line.trimmed);
+    const match = /^def\s+([A-Za-z_]\w*)\s*\((.*)\)\s*(?:->\s*([A-Za-z_][\w[\]]*))?\s*:\s*$/.exec(line.trimmed);
     if (!match) {
       return null;
     }
@@ -1218,21 +1328,36 @@
   }
 
   function parseParameter(source, lineNumber) {
-    const match = /^([A-Za-z_]\w*)\s*(?::\s*([A-Za-z_]\w*))?$/.exec(source);
-    if (!match) {
+    const colonIndex = source.indexOf(":");
+    if (colonIndex < 0) {
+      if (!identifierPattern.test(source)) {
+        throw new DiagramError(lineNumber, `Unsupported parameter syntax: ${source}`);
+      }
+      return { name: source, type: null };
+    }
+    const name = source.slice(0, colonIndex).trim();
+    const type = source.slice(colonIndex + 1).trim();
+    if (!identifierPattern.test(name) || !type) {
       throw new DiagramError(lineNumber, `Unsupported parameter syntax: ${source}`);
     }
-    const [, name, type] = match;
-    if (type) {
-      validateTypeName(type, lineNumber);
-    }
-    return { name, type: type || null };
+    validateTypeName(type, lineNumber);
+    return { name, type };
   }
 
   function validateTypeName(type, lineNumber) {
-    if (!supportedTypes.has(type)) {
-      throw new DiagramError(lineNumber, `Only int, float, str, bool, and None annotations are supported; found ${type}.`);
+    const trimmed = type.trim();
+    if (supportedTypes.has(trimmed)) {
+      return;
     }
+    const match = /^list\[(.*)\]$/.exec(trimmed);
+    if (match) {
+      validateTypeName(match[1], lineNumber);
+      return;
+    }
+    throw new DiagramError(
+      lineNumber,
+      `Only int, float, str, bool, None, and list[...] annotations are supported; found ${trimmed}.`,
+    );
   }
 
   function findFunctionBody(lines, defIndex, defIndent) {
@@ -1286,9 +1411,9 @@
       }
       if (char === "'" || char === '"') {
         quote = char;
-      } else if (char === "(") {
+      } else if (char === "(" || char === "[") {
         depth += 1;
-      } else if (char === ")") {
+      } else if (char === ")" || char === "]") {
         depth -= 1;
       } else if (char === separator && depth === 0) {
         parts.push(source.slice(start, index));
@@ -1299,7 +1424,12 @@
     return parts;
   }
 
-  function findTopLevelAssignment(source) {
+  // Finds the "=" that splits an assignment statement into its target and
+  // its expression, skipping ==, !=, <=, >= and anything inside brackets or
+  // strings. When the "=" is preceded by +, -, *, / (or //) or %, it is an
+  // augmented assignment (e.g. `x += 1`); `lhsEnd` then stops before that
+  // operator instead of at the "=" itself, and `operator` names it.
+  function findAssignmentSplit(source) {
     let depth = 0;
     let quote = null;
     let escaped = false;
@@ -1319,38 +1449,86 @@
       }
       if (char === "'" || char === '"') {
         quote = char;
-      } else if (char === "(") {
-        depth += 1;
-      } else if (char === ")") {
-        depth -= 1;
-      } else if (char === "=" && depth === 0) {
-        const previous = source[index - 1] || "";
-        const next = source[index + 1] || "";
-        if (!"=!<>".includes(previous) && next !== "=") {
-          return index;
-        }
+        continue;
       }
+      if (char === "(" || char === "[") {
+        depth += 1;
+        continue;
+      }
+      if (char === ")" || char === "]") {
+        depth -= 1;
+        continue;
+      }
+      if (char !== "=" || depth !== 0) {
+        continue;
+      }
+      const next = source[index + 1] || "";
+      const previous = source[index - 1] || "";
+      if (next === "=" || "=!<>".includes(previous)) {
+        continue;
+      }
+      if ("+-*%".includes(previous)) {
+        return { equalsIndex: index, lhsEnd: index - 1, operator: previous };
+      }
+      if (previous === "/") {
+        const beforePrevious = source[index - 2] || "";
+        return beforePrevious === "/"
+          ? { equalsIndex: index, lhsEnd: index - 2, operator: "//" }
+          : { equalsIndex: index, lhsEnd: index - 1, operator: "/" };
+      }
+      return { equalsIndex: index, lhsEnd: index, operator: null };
     }
-    return -1;
+    return null;
   }
 
   function parseAssignment(source, lineNumber) {
-    const equalsIndex = findTopLevelAssignment(source);
-    if (equalsIndex < 0) {
+    const split = findAssignmentSplit(source);
+    if (!split) {
       return null;
     }
-    const left = source.slice(0, equalsIndex).trim();
-    const expression = source.slice(equalsIndex + 1).trim();
+    const left = source.slice(0, split.lhsEnd).trim();
+    const expression = source.slice(split.equalsIndex + 1).trim();
+    if (!expression || !left) {
+      throw new DiagramError(lineNumber, `Unsupported assignment syntax: ${source}`);
+    }
+
+    const subscriptMatch = /^([A-Za-z_]\w*)(\[.*\])$/.exec(left);
+    if (subscriptMatch) {
+      const target = parseAssignmentTarget(subscriptMatch[1], subscriptMatch[2], lineNumber);
+      return {
+        augmentedOperator: split.operator,
+        expression,
+        indexSource: target.indexSource,
+        kind: "subscript",
+        name: target.name,
+      };
+    }
+
+    if (split.operator) {
+      if (!identifierPattern.test(left)) {
+        throw new DiagramError(lineNumber, `Unsupported assignment syntax: ${source}`);
+      }
+      return { augmentedOperator: split.operator, expression, kind: "name", name: left };
+    }
+
     const nameParts = left.split(":");
     const name = nameParts[0].trim();
     const declaredType = nameParts[1] ? nameParts[1].trim() : null;
-    if (nameParts.length > 2 || !identifierPattern.test(name) || !expression) {
+    if (nameParts.length > 2 || !identifierPattern.test(name)) {
       throw new DiagramError(lineNumber, `Unsupported assignment syntax: ${source}`);
     }
     if (declaredType) {
       validateTypeName(declaredType, lineNumber);
     }
-    return { declaredType, expression, name };
+    return { declaredType, expression, kind: "name", name };
+  }
+
+  function parseAssignmentTarget(name, bracketGroup, lineNumber) {
+    const indexSource = bracketGroup.slice(1, -1).trim();
+    if (!indexSource) {
+      throw new DiagramError(lineNumber, `Unsupported assignment target: ${name}${bracketGroup}`);
+    }
+    return { indexSource, name };
   }
 
   function buildDiagramTrace(source) {
@@ -1431,10 +1609,18 @@
         index = result.nextIndex;
         continue;
       }
+      if (/^for\b/.test(trimmed)) {
+        const result = executeFor(state, index, endIndex, baseIndent, options);
+        if (result.didReturn) {
+          return result;
+        }
+        index = result.nextIndex;
+        continue;
+      }
       if (/^(elif|else)\b/.test(trimmed)) {
         throw new DiagramError(line.number, `${trimmed.split(/\s+/)[0]} without a matching if statement.`, lineCodeSpan(line));
       }
-      if (/^(for|class|with|try)\b/.test(trimmed)) {
+      if (/^(class|with|try)\b/.test(trimmed)) {
         throw new DiagramError(line.number, `Unsupported construct on line ${line.number}.`);
       }
       if (/^def\b/.test(trimmed)) {
@@ -1564,6 +1750,107 @@
     return { didReturn: false, nextIndex: block.endIndex, value: makeNoneValue() };
   }
 
+  function executeFor(state, index, endIndex, baseIndent, options) {
+    const line = state.program.lines[index];
+    const header = parseForHeader(line);
+    const block = findIndentedBlock(state.program.lines, index, endIndex, line.indent, "for");
+    const iterableExpr = parseExpression(
+      header.iterableSource,
+      line.number,
+      expressionBaseOffset(line, header.iterableSource),
+    );
+    const items = evaluateIterable(state, iterableExpr);
+    const frame = getActiveFrame(state);
+
+    for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+      setBinding(frame, header.variableName, items[itemIndex], null);
+      addStep(
+        state,
+        line.number,
+        `For loop: bound ${header.variableName} = ${formatValue(items[itemIndex])} (item ${itemIndex + 1} of ${items.length}).`,
+        lineCodeSpan(line),
+      );
+      const result = executeBlock(state, block.startIndex, block.endIndex, block.indent, options);
+      if (result.didReturn) {
+        return { ...result, nextIndex: block.endIndex };
+      }
+    }
+    addStep(
+      state,
+      line.number,
+      items.length
+        ? `For loop: iterated over ${items.length} item(s); loop complete.`
+        : "For loop: iterable was empty; loop body skipped.",
+      lineCodeSpan(line),
+    );
+
+    return { didReturn: false, nextIndex: block.endIndex, value: makeNoneValue() };
+  }
+
+  function parseForHeader(line) {
+    const match = /^for\s+([A-Za-z_]\w*)\s+in\s+(.+):$/.exec(line.trimmed);
+    if (!match) {
+      throw new DiagramError(line.number, `Unsupported for syntax: ${line.trimmed}`, lineCodeSpan(line));
+    }
+    return { iterableSource: match[2].trim(), variableName: match[1] };
+  }
+
+  function evaluateIterable(state, node) {
+    if (node.type === "call" && node.callee.type === "name" && node.callee.name === "range") {
+      return evaluateRangeCall(state, node);
+    }
+    const value = evaluateExpression(node, state);
+    if (value.type === "list") {
+      return activeListValues(getHeapObject(state, value.heapId));
+    }
+    throw new DiagramError(
+      node.line,
+      `TypeError on Line ${node.line}: for loops can only iterate over range() or a list in this diagram.`,
+      node.span,
+    );
+  }
+
+  function evaluateRangeCall(state, node) {
+    if (node.keywords.length || node.args.length < 1 || node.args.length > 3) {
+      throw new DiagramError(
+        node.line,
+        `TypeError on Line ${node.line}: range() expects 1 to 3 positional arguments.`,
+        node.span,
+      );
+    }
+    const numbers = node.args.map((arg) => {
+      const value = evaluateExpression(arg, state);
+      if (value.type !== "int") {
+        throw new DiagramError(node.line, `TypeError on Line ${node.line}: range() arguments must be integers.`, node.span);
+      }
+      return value.value;
+    });
+    let start = 0;
+    let stop;
+    let step = 1;
+    if (numbers.length === 1) {
+      [stop] = numbers;
+    } else if (numbers.length === 2) {
+      [start, stop] = numbers;
+    } else {
+      [start, stop, step] = numbers;
+    }
+    if (step === 0) {
+      throw new DiagramError(node.line, `ValueError on Line ${node.line}: range() step argument must not be zero.`, node.span);
+    }
+    const values = [];
+    if (step > 0) {
+      for (let value = start; value < stop; value += step) {
+        values.push(makeValue("int", value));
+      }
+    } else {
+      for (let value = start; value > stop; value += step) {
+        values.push(makeValue("int", value));
+      }
+    }
+    return values;
+  }
+
   function collectIfClauses(lines, index, endIndex, baseIndent) {
     const clauses = [];
     let cursor = index;
@@ -1680,6 +1967,7 @@
     fn.heapId = heapId;
     state.heap.push({
       id: heapId,
+      kind: "function",
       label: `Fn Lines ${fn.line} - ${fn.endLine}`,
     });
     setBinding(frame, fn.name, makeFunctionValue(fn), null);
@@ -1692,7 +1980,17 @@
   }
 
   function executeAssignment(state, line, assignment) {
-    const value = evaluateExpression(parseExpression(assignment.expression, line.number, expressionBaseOffset(line, assignment.expression)), state);
+    if (assignment.kind === "subscript") {
+      executeSubscriptAssignment(state, line, assignment);
+      return;
+    }
+    let value = evaluateExpression(parseExpression(assignment.expression, line.number, expressionBaseOffset(line, assignment.expression)), state);
+    const operatorLabel = assignment.augmentedOperator ? `${assignment.augmentedOperator}=` : "=";
+    if (assignment.augmentedOperator) {
+      const currentSpan = lineSubstringSpan(line, assignment.name);
+      const currentValue = resolveName(state, assignment.name, line.number, currentSpan);
+      value = applyBinaryOperator(assignment.augmentedOperator, currentValue, value, line.number);
+    }
     if (assignment.declaredType && !valueMatchesType(value, assignment.declaredType)) {
       throw new DiagramError(
         line.number,
@@ -1700,7 +1998,44 @@
       );
     }
     setBinding(getActiveFrame(state), assignment.name, value, assignment.declaredType);
-    addStep(state, line.number, `Assigned ${assignment.name} = ${formatValue(value)} in ${getActiveFrame(state).name}.`, lineCodeSpan(line));
+    addStep(
+      state,
+      line.number,
+      `Assigned ${assignment.name} ${operatorLabel} ${formatValue(value)} in ${getActiveFrame(state).name}.`,
+      lineCodeSpan(line),
+    );
+  }
+
+  function executeSubscriptAssignment(state, line, assignment) {
+    const collectionSpan = lineSubstringSpan(line, assignment.name);
+    const collection = resolveName(state, assignment.name, line.number, collectionSpan);
+    if (collection.type !== "list") {
+      throw new DiagramError(
+        line.number,
+        `TypeError on Line ${line.number}: only lists support item assignment in this diagram.`,
+        collectionSpan,
+      );
+    }
+    const heapObject = getHeapObject(state, collection.heapId);
+    const active = activeListSlots(heapObject);
+    const indexExpr = parseExpression(assignment.indexSource, line.number, expressionBaseOffset(line, assignment.indexSource));
+    const indexValue = evaluateExpression(indexExpr, state);
+    const normalizedIndex = resolveIndex(indexValue, active.length, indexExpr, "list");
+    const slot = active[normalizedIndex];
+    const valueExpr = parseExpression(assignment.expression, line.number, expressionBaseOffset(line, assignment.expression));
+    let value = evaluateExpression(valueExpr, state);
+    const operatorLabel = assignment.augmentedOperator ? `${assignment.augmentedOperator}=` : "=";
+    if (assignment.augmentedOperator) {
+      value = applyBinaryOperator(assignment.augmentedOperator, slot.value, value, line.number);
+    }
+    slot.previousValues.push(slot.value);
+    slot.value = value;
+    addStep(
+      state,
+      line.number,
+      `Assigned ${assignment.name}[${formatValue(indexValue)}] ${operatorLabel} ${formatValue(value)} in heap ID:${heapObject.id}.`,
+      lineCodeSpan(line),
+    );
   }
 
   function evaluatePrintCall(state, expression) {
@@ -1708,7 +2043,7 @@
       throw new DiagramError(expression.line, "Keyword arguments are not supported for print.");
     }
     const values = expression.args.map((arg) => evaluateExpression(arg, state));
-    const text = values.map(outputValue).join(" ");
+    const text = values.map((value) => outputValue(state, value)).join(" ");
     state.output.push(text);
     addStep(state, expression.line, `Printed Output: ${text}`, expression.span);
     return makeNoneValue();
@@ -1740,7 +2075,7 @@
     } else if (constructorName === "float") {
       result = convertToFloat(value, expression);
     } else if (constructorName === "str") {
-      result = makeValue("str", value ? outputValue(value) : "");
+      result = makeValue("str", value ? outputValue(state, value) : "");
     } else {
       result = makeValue("bool", value ? isTruthy(value) : false);
     }
@@ -1864,6 +2199,12 @@
       && expression.callee.name === "len";
   }
 
+  function isListConstructorCall(expression) {
+    return expression.type === "call"
+      && expression.callee.type === "name"
+      && expression.callee.name === "list";
+  }
+
   function evaluateLenCall(state, expression) {
     if (expression.keywords.length || expression.args.length !== 1) {
       throw new DiagramError(
@@ -1873,14 +2214,19 @@
       );
     }
     const value = evaluateExpression(expression.args[0], state);
-    if (value.type !== "str") {
+    let length;
+    if (value.type === "str") {
+      length = value.value.length;
+    } else if (value.type === "list") {
+      length = activeListSlots(getHeapObject(state, value.heapId)).length;
+    } else {
       throw new DiagramError(
         expression.line,
-        `TypeError on Line ${expression.line}: len() expects a string in this diagram.`,
+        `TypeError on Line ${expression.line}: len() expects a string or list in this diagram.`,
         expression.span,
       );
     }
-    const result = makeValue("int", value.value.length);
+    const result = makeValue("int", length);
     addStep(
       state,
       expression.line,
@@ -1888,6 +2234,154 @@
       expression.span,
     );
     return result;
+  }
+
+  function evaluateListConstructorCall(state, expression) {
+    if (expression.args.length || expression.keywords.length) {
+      throw new DiagramError(
+        expression.line,
+        `TypeError on Line ${expression.line}: list() only supports zero arguments in this diagram.`,
+        expression.span,
+      );
+    }
+    const heapId = allocateListHeapObject(state, []);
+    const result = makeListValue(heapId);
+    addStep(
+      state,
+      expression.line,
+      `List constructor: list() -> allocated empty ${formatValue(result)} on the heap.`,
+      expression.span,
+    );
+    return result;
+  }
+
+  function evaluateMethodCall(state, node) {
+    const target = evaluateExpression(node.callee.object, state);
+    const methodName = node.callee.name;
+    if (target.type === "list") {
+      if (methodName === "append") {
+        return evaluateListAppend(state, node, target);
+      }
+      if (methodName === "pop") {
+        return evaluateListPop(state, node, target);
+      }
+      throw new DiagramError(
+        node.line,
+        `TypeError on Line ${node.line}: list has no method ${methodName} in this diagram.`,
+        node.span,
+      );
+    }
+    throw new DiagramError(
+      node.line,
+      `TypeError on Line ${node.line}: ${target.type} has no method ${methodName} in this diagram.`,
+      node.span,
+    );
+  }
+
+  function evaluateListAppend(state, node, listValue) {
+    if (node.args.length !== 1 || node.keywords.length) {
+      throw new DiagramError(node.line, `TypeError on Line ${node.line}: append() takes exactly 1 argument.`, node.span);
+    }
+    const value = evaluateExpression(node.args[0], state);
+    const heapObject = getHeapObject(state, listValue.heapId);
+    heapObject.items.push(makeListSlot(value));
+    addStep(
+      state,
+      node.line,
+      `Method call: ID:${heapObject.id}.append(${formatValue(value)}) added an item; length is now ${activeListSlots(heapObject).length}.`,
+      node.span,
+    );
+    return makeNoneValue();
+  }
+
+  // Popping never removes a slot from the heap object; it only marks the
+  // slot popped so the heap diagram can keep showing it, crossed out, as
+  // part of the list's history. Every read/write of a list (len, indexing,
+  // iteration, append, print) must go through activeListSlots/Values so
+  // popped slots stay invisible to actual list semantics.
+  function evaluateListPop(state, node, listValue) {
+    if (node.args.length > 1 || node.keywords.length) {
+      throw new DiagramError(node.line, `TypeError on Line ${node.line}: pop() takes at most 1 argument.`, node.span);
+    }
+    const heapObject = getHeapObject(state, listValue.heapId);
+    const active = activeListSlots(heapObject);
+    if (!active.length) {
+      throw new DiagramError(node.line, `IndexError on Line ${node.line}: pop from empty list.`, node.span);
+    }
+    const rawIndex = node.args.length ? evaluateExpression(node.args[0], state) : makeValue("int", -1);
+    const normalizedIndex = resolveIndex(rawIndex, active.length, node, "list");
+    const slot = active[normalizedIndex];
+    const indicesBeforePop = computeListDisplayIndices(heapObject);
+    const poppedPosition = heapObject.items.indexOf(slot);
+    slot.popped = true;
+    // Every slot after the one just popped shifts down by one display
+    // index (whether that later slot is still active or was already
+    // popped itself), so record what its index used to be.
+    for (let position = poppedPosition + 1; position < heapObject.items.length; position += 1) {
+      heapObject.items[position].indexHistory.push(indicesBeforePop[position]);
+    }
+    addStep(
+      state,
+      node.line,
+      `Method call: ID:${heapObject.id}.pop(${node.args.length ? formatValue(rawIndex) : ""}) removed and returned ${formatValue(slot.value)}.`,
+      node.span,
+    );
+    return slot.value;
+  }
+
+  // Walks a heap list object's slots in order, returning the display index
+  // for each position: active slots count up from 0, and a popped slot
+  // shows whatever index the next active slot would take.
+  function computeListDisplayIndices(heapObject) {
+    let counter = 0;
+    return heapObject.items.map((slot) => {
+      const index = counter;
+      if (!slot.popped) {
+        counter += 1;
+      }
+      return index;
+    });
+  }
+
+  function resolveIndex(rawIndexValue, length, node, subjectLabel) {
+    if (rawIndexValue.type !== "int") {
+      throw new DiagramError(node.line, `TypeError on Line ${node.line}: ${subjectLabel} indices must be integers.`, node.span);
+    }
+    const normalized = rawIndexValue.value < 0 ? length + rawIndexValue.value : rawIndexValue.value;
+    if (normalized < 0 || normalized >= length) {
+      throw new DiagramError(node.line, `IndexError on Line ${node.line}: ${subjectLabel} index out of range.`, node.span);
+    }
+    return normalized;
+  }
+
+  function getHeapObject(state, heapId) {
+    return state.heap.find((item) => item.id === heapId);
+  }
+
+  function allocateListHeapObject(state, items) {
+    const heapId = state.heap.length;
+    state.heap.push({
+      id: heapId,
+      items: items.map((value) => makeListSlot(value)),
+      kind: "list",
+    });
+    return heapId;
+  }
+
+  function makeListSlot(value) {
+    return { indexHistory: [], popped: false, previousValues: [], value };
+  }
+
+  function activeListSlots(heapObject) {
+    return heapObject.items.filter((slot) => !slot.popped);
+  }
+
+  function activeListValues(heapObject) {
+    return activeListSlots(heapObject).map((slot) => slot.value);
+  }
+
+  function makeListValue(heapId) {
+    return { display: `ID:${heapId}`, heapId, type: "list", value: heapId };
   }
 
   function callFunction(state, fn, positionalArgs, keywordArgs, lineNumber, highlight = null) {
@@ -2077,12 +2571,32 @@
     return value && value.display !== undefined ? value.display : String(value);
   }
 
-  function outputValue(value) {
+  function outputValue(state, value) {
     if (!value) {
       return "";
     }
+    if (value.type === "list") {
+      return formatValueRepr(state, value);
+    }
     if (value.type === "str") {
       return String(value.value);
+    }
+    return formatValue(value);
+  }
+
+  function formatValueRepr(state, value, seen = new Set()) {
+    if (!value) {
+      return "None";
+    }
+    if (value.type === "list") {
+      if (seen.has(value.heapId)) {
+        return "[...]";
+      }
+      const heapObject = getHeapObject(state, value.heapId);
+      const nextSeen = new Set(seen);
+      nextSeen.add(value.heapId);
+      const parts = (heapObject ? activeListValues(heapObject) : []).map((item) => formatValueRepr(state, item, nextSeen));
+      return `[${parts.join(", ")}]`;
     }
     return formatValue(value);
   }
@@ -2093,6 +2607,9 @@
     }
     if (expected === "float") {
       return value.type === "float" || value.type === "int";
+    }
+    if (expected.startsWith("list[") || expected === "list") {
+      return value.type === "list";
     }
     return value.type === expected;
   }
@@ -2147,7 +2664,7 @@
         index += 2;
         continue;
       }
-      if ("+-*/%(),<>=[]".includes(char)) {
+      if ("+-*/%(),<>=[].".includes(char)) {
         tokens.push({ end: baseOffset + index + 1, type: "operator", value: char, start: baseOffset + index });
         index += 1;
         continue;
@@ -2381,11 +2898,45 @@
         ...node,
         span: { from: token.start, to: close.end },
       };
+    } else if (token.value === "[") {
+      const elements = [];
+      if (!stream.peek("]")) {
+        elements.push(parseOr(stream));
+        while (stream.match(",")) {
+          if (stream.peek("]")) {
+            break;
+          }
+          elements.push(parseOr(stream));
+        }
+      }
+      const close = stream.expect("]");
+      node = {
+        elements,
+        line: stream.lineNumber,
+        span: { from: token.start, to: close.end },
+        type: "list",
+      };
     } else {
       throw new DiagramError(stream.lineNumber, `Unexpected expression token: ${token.value}`);
     }
 
-    while (stream.peek("(") || stream.peek("[")) {
+    while (stream.peek("(") || stream.peek("[") || stream.peek(".")) {
+      if (stream.peek(".")) {
+        stream.consume();
+        const nameToken = stream.consume();
+        if (nameToken.type !== "identifier") {
+          throw new DiagramError(stream.lineNumber, "Expected an attribute name after '.'.");
+        }
+        node = {
+          line: stream.lineNumber,
+          name: nameToken.value,
+          object: node,
+          span: { from: node.span.from, to: nameToken.end },
+          type: "attribute",
+        };
+        continue;
+      }
+
       if (stream.peek("[")) {
         stream.consume();
         const index = parseOr(stream);
@@ -2484,33 +3035,42 @@
       addStep(state, node.line, `Arithmetic expression: ${formatValue(left)} ${node.operator} ${formatValue(right)} -> ${formatValue(result)}.`, node.span);
       return result;
     }
+    if (node.type === "list") {
+      const items = node.elements.map((element) => evaluateExpression(element, state));
+      const heapId = allocateListHeapObject(state, items);
+      const result = makeListValue(heapId);
+      addStep(
+        state,
+        node.line,
+        `List literal: allocated ${formatValue(result)} on the heap with ${items.length} item(s).`,
+        node.span,
+      );
+      return result;
+    }
     if (node.type === "subscript") {
       const collection = evaluateExpression(node.collection, state);
       const index = evaluateExpression(node.index, state);
+      if (collection.type === "list") {
+        const heapObject = getHeapObject(state, collection.heapId);
+        const active = activeListSlots(heapObject);
+        const normalizedIndex = resolveIndex(index, active.length, node, "list");
+        const result = active[normalizedIndex].value;
+        addStep(
+          state,
+          node.line,
+          `Index expression: ${formatValue(collection)}[${formatValue(index)}] -> ${formatValue(result)}.`,
+          node.span,
+        );
+        return result;
+      }
       if (collection.type !== "str") {
         throw new DiagramError(
           node.line,
-          `TypeError on Line ${node.line}: only strings can be indexed in this diagram.`,
+          `TypeError on Line ${node.line}: only strings and lists can be indexed in this diagram.`,
           node.span,
         );
       }
-      if (index.type !== "int") {
-        throw new DiagramError(
-          node.line,
-          `TypeError on Line ${node.line}: string indices must be integers.`,
-          node.span,
-        );
-      }
-      const normalizedIndex = index.value < 0
-        ? collection.value.length + index.value
-        : index.value;
-      if (normalizedIndex < 0 || normalizedIndex >= collection.value.length) {
-        throw new DiagramError(
-          node.line,
-          `IndexError on Line ${node.line}: string index out of range.`,
-          node.span,
-        );
-      }
+      const normalizedIndex = resolveIndex(index, collection.value.length, node, "string");
       const result = makeValue("str", collection.value[normalizedIndex]);
       addStep(
         state,
@@ -2524,11 +3084,17 @@
       if (isPrintCall(node)) {
         return evaluatePrintCall(state, node);
       }
+      if (isListConstructorCall(node)) {
+        return evaluateListConstructorCall(state, node);
+      }
       if (isTypeConstructorCall(node)) {
         return evaluateTypeConstructorCall(state, node);
       }
       if (isLenCall(node)) {
         return evaluateLenCall(state, node);
+      }
+      if (node.callee.type === "attribute") {
+        return evaluateMethodCall(state, node);
       }
       if (node.callee.type !== "name") {
         throw new DiagramError(node.line, "Only named function calls are supported.");
@@ -2633,19 +3199,65 @@
         returnAddress: frame.returnAddress,
         returnValue: frame.returnValue ? formatValue(frame.returnValue) : null,
       })),
-      heap: state.heap.map((item) => ({ ...item })),
+      heap: state.heap.map((item) => snapshotHeapItem(state, item)),
       line,
       message,
       output: [...state.output],
     };
   }
 
+  function snapshotHeapItem(state, item) {
+    if (item.kind === "list") {
+      const displayIndices = computeListDisplayIndices(item);
+      const rows = item.items.map((slot, position) => ({
+        index: displayIndices[position],
+        indexHistory: slot.indexHistory.slice(),
+        popped: slot.popped,
+        previousValues: slot.previousValues.map((previous) => formatValue(previous)),
+        value: formatValue(slot.value),
+      }));
+      return {
+        elementType: listElementTypeLabel(state, item.items.map((slot) => slot.value)),
+        id: item.id,
+        items: rows,
+        kind: "list",
+      };
+    }
+    return { id: item.id, kind: item.kind || "function", label: item.label };
+  }
+
+  // Determine a display label for the type of values stored in a list, e.g.
+  // "int" or, for a list of lists, a recursively resolved "list[int]".
+  function listElementTypeLabel(state, values) {
+    if (!values.length) {
+      return "";
+    }
+    const labels = new Set(values.map((value) => valueTypeLabel(state, value)));
+    return labels.size === 1 ? [...labels][0] : "object";
+  }
+
+  function valueTypeLabel(state, value) {
+    if (value.type === "list") {
+      const heapObject = getHeapObject(state, value.heapId);
+      const inner = heapObject ? listElementTypeLabel(state, heapObject.items.map((slot) => slot.value)) : "";
+      return inner ? `list[${inner}]` : "list";
+    }
+    if (value.type === "None") {
+      return "NoneType";
+    }
+    return value.type;
+  }
+
   function addStep(state, line, message, failedOrHighlight = false, highlight = null, metadata = {}) {
-    if (state.trace.length >= maxTraceSteps) {
+    const failed = typeof failedOrHighlight === "boolean" ? failedOrHighlight : false;
+    // A failure step is always recorded, even past the cap, so the trace
+    // always ends with the terminal error message instead of throwing a
+    // second time while buildDiagramTrace's catch block is already
+    // reporting the first "too many steps" error.
+    if (state.trace.length >= maxTraceSteps && !failed) {
       throw new DiagramError(line || 1, "Stopped after too many diagram steps. Check for recursion.");
     }
 
-    const failed = typeof failedOrHighlight === "boolean" ? failedOrHighlight : false;
     const syntaxHighlight = highlight || (typeof failedOrHighlight === "object" ? failedOrHighlight : null);
     state.trace.push({
       callDepth: metadata.callDepth ?? activeCallDepth(state),
@@ -2675,7 +3287,8 @@
 
   function diagramHeightFor(snapshot, context) {
     const stackHeight = stackColumnHeightFor(snapshot.frames || [], context);
-    return Math.max(canvasBaseHeight, 82 + stackHeight + 30);
+    const heapHeight = heapColumnHeightFor(snapshot.heap || [], context);
+    return Math.max(canvasBaseHeight, 82 + Math.max(stackHeight, heapHeight) + 30);
   }
 
   function stackColumnHeightFor(frames, context) {
@@ -2685,6 +3298,38 @@
     const frameHeights = frames.map((frame) => frameHeightFor(frame, context, 392));
     const gaps = Math.max(0, frameHeights.length - 1) * 14;
     return Math.max(528, 58 + frameHeights.reduce((sum, height) => sum + height, 0) + gaps + 16);
+  }
+
+  const listIndexColumnWidth = 44;
+  const heapColumnInnerWidth = 270 - 56;
+
+  function heapItemHeight(item, context) {
+    if (item.kind !== "list") {
+      return 72;
+    }
+    if (!item.items.length) {
+      return 60;
+    }
+    const valueWidth = Math.max(1, heapColumnInnerWidth - listIndexColumnWidth - 16);
+    const indexWidth = Math.max(1, listIndexColumnWidth - 16);
+    const totalLines = item.items.reduce((sum, cell) => {
+      if (cell.popped) {
+        return sum + 1;
+      }
+      const valueLines = Math.max(1, bindingValueLines(context, cell, valueWidth).length);
+      const indexLines = Math.max(1, bindingValueLines(context, listIndexCell(cell), indexWidth).length);
+      return sum + Math.max(valueLines, indexLines);
+    }, 0);
+    return 34 + totalLines * bindingRowHeight + 10;
+  }
+
+  function heapColumnHeightFor(heap, context) {
+    if (!heap.length) {
+      return 528;
+    }
+    const itemHeights = heap.map((item) => heapItemHeight(item, context));
+    const gaps = Math.max(0, itemHeights.length - 1) * 14;
+    return Math.max(528, 58 + itemHeights.reduce((sum, height) => sum + height, 0) + gaps + 16);
   }
 
   function frameValueOffset() {
@@ -2885,6 +3530,23 @@
     return lines.length;
   }
 
+  function strikeThroughText(context, text, x, y, maxWidth) {
+    const width = Math.min(Math.max(1, context.measureText(text).width), maxWidth);
+    context.strokeStyle = "#94a3b8";
+    context.lineWidth = 1.5;
+    context.beginPath();
+    context.moveTo(x, y - 5);
+    context.lineTo(x + width, y - 5);
+    context.stroke();
+  }
+
+  // Shapes a list row's index the same way a binding is shaped, so the same
+  // struck-old/current-new rendering used for reassigned values also works
+  // for an index that shifted because an earlier item was popped.
+  function listIndexCell(cell) {
+    return { previousValues: cell.indexHistory, value: cell.index };
+  }
+
   function drawFrameMeta(context, x, y, width, frame) {
     context.save();
     context.font = "600 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
@@ -2902,30 +3564,121 @@
 
   function drawHeap(context, column, heap) {
     let y = column.y + 58;
-    heap.forEach((item) => {
-      if (y + 78 > column.y + column.height - 12) {
+    const innerWidth = column.width - 56;
+    for (const item of heap) {
+      const height = heapItemHeight(item, context);
+      if (y + height > column.y + column.height - 12) {
         drawOverflow(context, column, y, "More heap objects...");
-        return;
+        break;
       }
-      context.save();
-      context.fillStyle = "#f0fdf4";
-      context.strokeStyle = "#16a34a";
-      context.lineWidth = 1.5;
-      roundRect(context, column.x + 14, y, column.width - 28, 72, 8);
-      context.fill();
-      context.stroke();
-      context.fillStyle = "#14532d";
-      context.font = "700 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
-      context.fillText(`ID:${item.id}`, column.x + 28, y + 25, column.width - 56);
-      context.fillStyle = "#166534";
-      context.font = "14px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
-      context.fillText(item.label, column.x + 28, y + 49, column.width - 56);
-      context.restore();
-      y += 86;
-    });
+      if (item.kind === "list") {
+        drawListHeapItem(context, column, y, height, item, innerWidth);
+      } else {
+        drawFunctionHeapItem(context, column, y, height, item);
+      }
+      y += height + 14;
+    }
     if (!heap.length) {
       drawEmptyColumnText(context, column, "No heap objects yet");
     }
+  }
+
+  function drawFunctionHeapItem(context, column, y, height, item) {
+    context.save();
+    context.fillStyle = "#f0fdf4";
+    context.strokeStyle = "#16a34a";
+    context.lineWidth = 1.5;
+    roundRect(context, column.x + 14, y, column.width - 28, height, 8);
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#14532d";
+    context.font = "700 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+    context.fillText(`ID:${item.id}`, column.x + 28, y + 25, column.width - 56);
+    context.fillStyle = "#166534";
+    context.font = "14px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    context.fillText(item.label, column.x + 28, y + 49, column.width - 56);
+    context.restore();
+  }
+
+  function drawListHeapItem(context, column, y, height, item, innerWidth) {
+    context.save();
+    context.fillStyle = "#eff6ff";
+    context.strokeStyle = "#2563eb";
+    context.lineWidth = 1.5;
+    roundRect(context, column.x + 14, y, column.width - 28, height, 8);
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#1e3a8a";
+    context.font = "700 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+    const headerLabel = item.elementType ? `ID:${item.id}  list[${item.elementType}]` : `ID:${item.id}  list`;
+    context.fillText(headerLabel, column.x + 28, y + 22, column.width - 56);
+
+    if (!item.items.length) {
+      context.fillStyle = "#64748b";
+      context.font = "13px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+      context.fillText("empty", column.x + 28, y + 44, innerWidth);
+      context.restore();
+      return;
+    }
+
+    const tableX = column.x + 28;
+    const tableY = y + 34;
+    const tableWidth = innerWidth;
+    const valueColumnWidth = tableWidth - listIndexColumnWidth;
+
+    let rowY = tableY;
+    item.items.forEach((cell, cellIndex) => {
+      const indexCell = listIndexCell(cell);
+      const rowHeight = cell.popped
+        ? bindingRowHeight
+        : Math.max(
+            Math.max(1, bindingValueLines(context, cell, valueColumnWidth - 16).length),
+            Math.max(1, bindingValueLines(context, indexCell, listIndexColumnWidth - 16).length),
+          ) * bindingRowHeight;
+
+      if (cell.popped) {
+        context.fillStyle = "#f1f5f9";
+        context.fillRect(tableX, rowY, tableWidth, rowHeight);
+      } else if (cellIndex % 2 === 1) {
+        context.fillStyle = "#dbeafe";
+        context.fillRect(tableX, rowY, tableWidth, rowHeight);
+      }
+
+      context.font = "600 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+      if (cell.popped) {
+        context.fillStyle = "#94a3b8";
+        const indexText = String(cell.index);
+        context.fillText(indexText, tableX + 10, rowY + 20, listIndexColumnWidth - 16);
+        strikeThroughText(context, indexText, tableX + 10, rowY + 20, listIndexColumnWidth - 16);
+        const valueText = String(cell.value);
+        context.fillText(valueText, tableX + listIndexColumnWidth + 10, rowY + 20, valueColumnWidth - 16);
+        strikeThroughText(context, valueText, tableX + listIndexColumnWidth + 10, rowY + 20, valueColumnWidth - 16);
+      } else {
+        drawBindingValue(context, indexCell, tableX + 10, rowY + 20, listIndexColumnWidth - 16);
+        drawBindingValue(context, cell, tableX + listIndexColumnWidth + 10, rowY + 20, valueColumnWidth - 16);
+      }
+
+      context.strokeStyle = "#bfdbfe";
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(tableX, rowY + rowHeight);
+      context.lineTo(tableX + tableWidth, rowY + rowHeight);
+      context.stroke();
+      rowY += rowHeight;
+    });
+    const tableHeight = rowY - tableY;
+
+    context.strokeStyle = "#93c5fd";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(tableX + listIndexColumnWidth, tableY);
+    context.lineTo(tableX + listIndexColumnWidth, tableY + tableHeight);
+    context.stroke();
+
+    context.strokeStyle = "#60a5fa";
+    context.lineWidth = 1.2;
+    context.strokeRect(tableX, tableY, tableWidth, tableHeight);
+    context.restore();
   }
 
   function drawPrintedOutput(context, column, output) {

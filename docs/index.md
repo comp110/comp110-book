@@ -18,7 +18,7 @@ This site is a learning resource for **COMP 110: Introduction to Programming** a
     2. [While Loops](control_flow/while_loops.md): Repeat code while a condition is true and control when the loop stops.
     3. [Composing If and While](control_flow/composition.md): Combine decisions and repetition by nesting conditionals and loops.
 
-<!-- 4. [List Fundamentals](list-fundamentals.md): Learn how Python lists store many values under one name, how they differ from primitive types, and how loops and functions work with them. -->
+4. [List Fundamentals](list-fundamentals.md): Learn how Python lists store many values under one name, how they differ from primitive types, and how loops and functions work with them.
 
 
 ## Practice
@@ -29,6 +29,6 @@ This site is a learning resource for **COMP 110: Introduction to Programming** a
 4. [Nested while Loops](nested-while-practice.md): Practice writing counter-controlled and condition-controlled while loops, combining conditions with Boolean operators, composing loops with conditionals, and repairing common loop errors.
 5. Lists
 
-    <!-- 1. [List Fundamentals](lists/list-fundamentals-practice.md): Practice initializing, accessing, and mutating Python lists (our first reference type!). -->
+    1. [List Fundamentals](lists/list-fundamentals-practice.md): Practice initializing, accessing, and mutating Python lists (our first reference type!).
     2. [List and while Loops](lists/list-while-practice.md): Practice using while loops to read, count, search, and build lists, including nested loops over 2D lists.
     <!-- 3. [List and for Loops](lists/list-for-loop-practice.md): Use for loops to visit every element of a list, and learn when a for loop or a while loop is the better fit. -->

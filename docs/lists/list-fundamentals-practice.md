@@ -3,7 +3,7 @@ title: List Fundamentals
 description: Learn how Python lists are initialized, read, changed, and shared between variables in memory.
 ---
 
-## Lists Hold Many Values Under One Name
+## Lists Can Hold Many Values Under One Name
 
 The types you have used so far, `int`, `float`, `str`, and `bool`, each hold a single value. A **list** is a value that holds a sequence of other values, called its **elements**, in a specific order. A list lets one variable refer to many values at once, such as every score in a game or every word in a sentence.
 
@@ -53,7 +53,7 @@ print(len(prices))
 print(len(empty))
 ~~~
 
-## Reading an Element with Subscription Notation
+## Accessing an Element with Subscription Notation
 
 Every element in a list has an **index**, a position that counts up from `0`. The first element is at index `0`, the second at index `1`, and the last at index `len(items) - 1`.
 
