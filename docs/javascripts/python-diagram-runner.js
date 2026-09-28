@@ -23,6 +23,9 @@
   };
 
   let codeMirrorPromise;
+  // Names of the classes defined in the program currently being traced, so
+  // type annotations can refer to them. Reset by buildDiagramTrace.
+  let knownClassNames = new Set();
 
   class DiagramError extends Error {
     constructor(line, message, highlight = null) {
@@ -1281,12 +1284,32 @@
     throw new DiagramError(lines[index].number, "Unclosed docstring.");
   }
 
+  function collectClassNames(lines) {
+    const names = new Set();
+    lines.forEach((line) => {
+      const match = /^class\s+([A-Za-z_]\w*)\s*:\s*$/.exec(line.trimmed);
+      if (match) {
+        names.add(match[1]);
+      }
+    });
+    return names;
+  }
+
   function parseProgram(lines) {
+    const classes = new Map();
+    const classByIndex = new Map();
     const functions = new Map();
     const functionByIndex = new Map();
 
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
+      const parsedClass = parseClassDefinition(lines, index);
+      if (parsedClass) {
+        classes.set(parsedClass.name, parsedClass);
+        classByIndex.set(index, parsedClass);
+        index = parsedClass.bodyEndIndex - 1;
+        continue;
+      }
       const parsed = parseFunctionDefinition(line);
       if (!parsed) {
         continue;
@@ -1309,7 +1332,83 @@
       index = body.endIndex - 1;
     }
 
-    return { functionByIndex, functions, lines };
+    return { classByIndex, classes, functionByIndex, functions, lines };
+  }
+
+  function parseClassDefinition(lines, classIndex) {
+    const line = lines[classIndex];
+    if (!/^class\b/.test(line.trimmed)) {
+      return null;
+    }
+    const match = /^class\s+([A-Za-z_]\w*)\s*:\s*$/.exec(line.trimmed);
+    if (!match) {
+      throw new DiagramError(line.number, `Unsupported class syntax: ${line.trimmed}`, lineCodeSpan(line));
+    }
+    const name = match[1];
+    const body = findFunctionBody(lines, classIndex, line.indent, "Class definitions");
+    const attributes = [];
+    const methods = new Map();
+
+    for (let index = classIndex + 1; index < body.endIndex; index += 1) {
+      const member = lines[index];
+      const trimmed = member.trimmed;
+      if (!trimmed || trimmed.startsWith("#") || trimmed === "pass") {
+        continue;
+      }
+      if (member.indent !== body.indent) {
+        throw new DiagramError(member.number, "Unexpected indentation in class body.", lineCodeSpan(member));
+      }
+      if (isDocstringStart(trimmed)) {
+        index = docstringEndIndex(lines, index) - 1;
+        continue;
+      }
+      const parsedMethod = parseFunctionDefinition(member);
+      if (parsedMethod) {
+        const methodBody = findFunctionBody(lines, index, member.indent);
+        if (!parsedMethod.params.length || parsedMethod.params[0].name !== "self") {
+          throw new DiagramError(
+            member.number,
+            `The first parameter of method ${parsedMethod.name} must be self.`,
+            lineCodeSpan(member),
+          );
+        }
+        methods.set(parsedMethod.name, {
+          ...parsedMethod,
+          bodyEndIndex: methodBody.endIndex,
+          bodyIndent: methodBody.indent,
+          bodyStartIndex: index + 1,
+          endLine: methodBody.endLine,
+          line: member.number,
+          lineInfo: member,
+          qualifiedName: `${name}#${parsedMethod.name}`,
+          startIndex: index,
+        });
+        index = methodBody.endIndex - 1;
+        continue;
+      }
+      const attribute = /^([A-Za-z_]\w*)\s*:\s*(.+)$/.exec(trimmed);
+      if (attribute && !attribute[2].includes("=")) {
+        validateTypeName(attribute[2], member.number);
+        attributes.push({ name: attribute[1], type: attribute[2].trim() });
+        continue;
+      }
+      throw new DiagramError(
+        member.number,
+        "Class bodies may only contain a docstring, attribute declarations, and method definitions in this diagram.",
+        lineCodeSpan(member),
+      );
+    }
+
+    return {
+      attributes,
+      bodyEndIndex: body.endIndex,
+      endLine: body.endLine,
+      heapId: null,
+      line: line.number,
+      lineInfo: line,
+      methods,
+      name,
+    };
   }
 
   function parseFunctionDefinition(line) {
@@ -1346,7 +1445,7 @@
 
   function validateTypeName(type, lineNumber) {
     const trimmed = type.trim();
-    if (supportedTypes.has(trimmed)) {
+    if (supportedTypes.has(trimmed) || knownClassNames.has(trimmed)) {
       return;
     }
     const match = /^list\[(.*)\]$/.exec(trimmed);
@@ -1356,11 +1455,11 @@
     }
     throw new DiagramError(
       lineNumber,
-      `Only int, float, str, bool, None, and list[...] annotations are supported; found ${trimmed}.`,
+      `Only int, float, str, bool, None, list[...], and class name annotations are supported; found ${trimmed}.`,
     );
   }
 
-  function findFunctionBody(lines, defIndex, defIndent) {
+  function findFunctionBody(lines, defIndex, defIndent, label = "Function definitions") {
     let bodyIndent = null;
     let endIndex = defIndex + 1;
     let endLine = lines[defIndex].number;
@@ -1382,7 +1481,7 @@
     }
 
     if (bodyIndent === null) {
-      throw new DiagramError(lines[defIndex].number, "Function definitions must include an indented body.");
+      throw new DiagramError(lines[defIndex].number, `${label} must include an indented body.`);
     }
 
     return { endIndex, endLine, indent: bodyIndent };
@@ -1492,6 +1591,10 @@
       throw new DiagramError(lineNumber, `Unsupported assignment syntax: ${source}`);
     }
 
+    if (/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(left)) {
+      return { augmentedOperator: split.operator, expression, kind: "attribute", targetSource: left };
+    }
+
     const subscriptMatch = /^([A-Za-z_]\w*)(\[.*\])$/.exec(left);
     if (subscriptMatch) {
       const target = parseAssignmentTarget(subscriptMatch[1], subscriptMatch[2], lineNumber);
@@ -1533,6 +1636,7 @@
 
   function buildDiagramTrace(source) {
     const lines = parseSourceLines(source);
+    knownClassNames = collectClassNames(lines);
     const program = parseProgram(lines);
     const state = {
       activeFrameId: 0,
@@ -1620,7 +1724,16 @@
       if (/^(elif|else)\b/.test(trimmed)) {
         throw new DiagramError(line.number, `${trimmed.split(/\s+/)[0]} without a matching if statement.`, lineCodeSpan(line));
       }
-      if (/^(class|with|try)\b/.test(trimmed)) {
+      if (/^class\b/.test(trimmed)) {
+        const cls = state.program.classByIndex.get(index);
+        if (!cls) {
+          throw new DiagramError(line.number, "Class definitions inside functions are not supported.");
+        }
+        executeClassDefinition(state, cls);
+        index = cls.bodyEndIndex;
+        continue;
+      }
+      if (/^(with|try)\b/.test(trimmed)) {
         throw new DiagramError(line.number, `Unsupported construct on line ${line.number}.`);
       }
       if (/^def\b/.test(trimmed)) {
@@ -1979,9 +2092,31 @@
     );
   }
 
+  function executeClassDefinition(state, cls) {
+    const frame = getActiveFrame(state);
+    const heapId = state.heap.length;
+    cls.heapId = heapId;
+    state.heap.push({
+      id: heapId,
+      kind: "class",
+      label: `Class Lines ${cls.line} - ${cls.endLine}`,
+    });
+    setBinding(frame, cls.name, makeClassValue(cls), null);
+    addStep(
+      state,
+      cls.line,
+      `Class definition: bound ${cls.name} to heap ID:${heapId} and skipped lines ${cls.line + 1}-${cls.endLine}.`,
+      lineCodeSpan(cls.lineInfo),
+    );
+  }
+
   function executeAssignment(state, line, assignment) {
     if (assignment.kind === "subscript") {
       executeSubscriptAssignment(state, line, assignment);
+      return;
+    }
+    if (assignment.kind === "attribute") {
+      executeAttributeAssignment(state, line, assignment);
       return;
     }
     let value = evaluateExpression(parseExpression(assignment.expression, line.number, expressionBaseOffset(line, assignment.expression)), state);
@@ -2036,6 +2171,112 @@
       `Assigned ${assignment.name}[${formatValue(indexValue)}] ${operatorLabel} ${formatValue(value)} in heap ID:${heapObject.id}.`,
       lineCodeSpan(line),
     );
+  }
+
+  // Python evaluates the right-hand side first, then the object named on the
+  // left-hand side, and finally stores the value in that object's attribute.
+  function executeAttributeAssignment(state, line, assignment) {
+    const valueExpr = parseExpression(assignment.expression, line.number, expressionBaseOffset(line, assignment.expression));
+    let value = evaluateExpression(valueExpr, state);
+    const targetExpr = parseExpression(assignment.targetSource, line.number, expressionBaseOffset(line, assignment.targetSource));
+    const target = evaluateExpression(targetExpr.object, state);
+    const heapObject = requireObjectValue(state, target, targetExpr);
+    const operatorLabel = assignment.augmentedOperator ? `${assignment.augmentedOperator}=` : "=";
+    if (assignment.augmentedOperator) {
+      const current = readAttribute(heapObject, targetExpr);
+      value = applyBinaryOperator(assignment.augmentedOperator, current, value, line.number);
+    }
+    const attribute = heapObject.attributes.find((item) => item.name === targetExpr.name);
+    if (attribute) {
+      if (attribute.value) {
+        attribute.previousValues.push(attribute.value);
+      }
+      attribute.value = value;
+    } else {
+      heapObject.attributes.push({ name: targetExpr.name, previousValues: [], value });
+    }
+    addStep(
+      state,
+      line.number,
+      `Assigned ${assignment.targetSource} ${operatorLabel} ${formatValue(value)} in heap ID:${heapObject.id}.`,
+      lineCodeSpan(line),
+    );
+  }
+
+  function requireObjectValue(state, value, node) {
+    if (!isObjectValue(value)) {
+      throw new DiagramError(
+        node.line,
+        `AttributeError on Line ${node.line}: ${value.type} has no attribute ${node.name} in this diagram.`,
+        node.span,
+      );
+    }
+    return getHeapObject(state, value.heapId);
+  }
+
+  // Declared attributes appear on a new object with no value until they are
+  // assigned, and reading one before then is an AttributeError, as in Python.
+  function readAttribute(heapObject, node) {
+    const attribute = heapObject.attributes.find((item) => item.name === node.name);
+    if (!attribute || !attribute.value) {
+      throw new DiagramError(
+        node.line,
+        `AttributeError on Line ${node.line}: '${heapObject.className}' object has no attribute '${node.name}'.`,
+        node.span,
+      );
+    }
+    return attribute.value;
+  }
+
+  function evaluateAttributeAccess(state, node) {
+    const target = evaluateExpression(node.object, state);
+    const heapObject = requireObjectValue(state, target, node);
+    const cls = state.program.classes.get(heapObject.className);
+    if (cls && cls.methods.has(node.name)) {
+      throw new DiagramError(
+        node.line,
+        `Method ${node.name} must be called with parentheses in this diagram, as in ${node.name}().`,
+        node.span,
+      );
+    }
+    const result = readAttribute(heapObject, node);
+    addStep(
+      state,
+      node.line,
+      `Attribute access: ${formatValue(target)}.${node.name} -> ${formatValue(result)}.`,
+      node.span,
+    );
+    return result;
+  }
+
+  function evaluateConstructorCall(state, cls, args, keywords, node) {
+    const heapId = state.heap.length;
+    state.heap.push({
+      attributes: cls.attributes.map((attribute) => ({ name: attribute.name, previousValues: [], value: null })),
+      className: cls.name,
+      id: heapId,
+      kind: "object",
+    });
+    const result = makeObjectValue(cls.name, heapId);
+    addStep(
+      state,
+      node.line,
+      `Constructor call: allocated a new ${cls.name} object at heap ID:${heapId}.`,
+      node.span,
+    );
+    const initializer = cls.methods.get("__init__");
+    if (initializer) {
+      callFunction(state, initializer, [result, ...args], keywords, node.line, node.span);
+    } else if (args.length || keywords.length) {
+      functionCallError(state, node.line, `${cls.name}() takes no arguments.`, node.span);
+    }
+    addStep(
+      state,
+      node.line,
+      `Constructor call: ${cls.name}(...) evaluated to ${formatValue(result)}.`,
+      node.span,
+    );
+    return result;
   }
 
   function evaluatePrintCall(state, expression) {
@@ -2161,7 +2402,7 @@
     const value = expressionSource
       ? evaluateExpression(parseExpression(expressionSource, line.number, expressionBaseOffset(line, expressionSource)), state)
       : makeNoneValue();
-    const fn = state.program.functions.get(frame.name);
+    const fn = frame.fn;
     const returnDepth = activeCallDepth(state);
     frame.returnValue = value;
     if (fn && fn.returnType && !valueMatchesType(value, fn.returnType)) {
@@ -2258,6 +2499,23 @@
   function evaluateMethodCall(state, node) {
     const target = evaluateExpression(node.callee.object, state);
     const methodName = node.callee.name;
+    if (isObjectValue(target)) {
+      const heapObject = getHeapObject(state, target.heapId);
+      const method = state.program.classes.get(heapObject.className).methods.get(methodName);
+      if (!method) {
+        throw new DiagramError(
+          node.line,
+          `AttributeError on Line ${node.line}: '${heapObject.className}' object has no method '${methodName}'.`,
+          node.span,
+        );
+      }
+      const args = node.args.map((arg) => evaluateExpression(arg, state));
+      const keywords = node.keywords.map((keyword) => ({
+        name: keyword.name,
+        value: evaluateExpression(keyword.value, state),
+      }));
+      return callFunction(state, method, [target, ...args], keywords, node.line, node.span);
+    }
     if (target.type === "list") {
       if (methodName === "append") {
         return evaluateListAppend(state, node, target);
@@ -2385,11 +2643,12 @@
   }
 
   function callFunction(state, fn, positionalArgs, keywordArgs, lineNumber, highlight = null) {
+    const fnLabel = fn.qualifiedName || fn.name;
     if (positionalArgs.length > fn.params.length) {
       return functionCallError(
         state,
         lineNumber,
-        `${fn.name} expects ${fn.params.length} argument(s), got ${positionalArgs.length + keywordArgs.length}.`,
+        `${fnLabel} expects ${fn.params.length} argument(s), got ${positionalArgs.length + keywordArgs.length}.`,
         highlight,
       );
     }
@@ -2405,7 +2664,7 @@
         functionCallError(
           state,
           lineNumber,
-          `${fn.name} got an unexpected keyword argument '${keyword.name}'.`,
+          `${fnLabel} got an unexpected keyword argument '${keyword.name}'.`,
           highlight,
         );
       }
@@ -2414,7 +2673,7 @@
         functionCallError(
           state,
           lineNumber,
-          `${fn.name} got multiple values for argument '${keyword.name}'.`,
+          `${fnLabel} got multiple values for argument '${keyword.name}'.`,
           highlight,
         );
       }
@@ -2428,7 +2687,7 @@
       return functionCallError(
         state,
         lineNumber,
-        `${fn.name} is missing required argument(s): ${names}.`,
+        `${fnLabel} is missing required argument(s): ${names}.`,
         highlight,
       );
     }
@@ -2443,7 +2702,8 @@
     const frame = {
       bindings: [],
       id: state.nextFrameId,
-      name: fn.name,
+      fn,
+      name: fnLabel,
       returnAddress: lineNumber,
       returnValue: null,
     };
@@ -2451,7 +2711,7 @@
     fn.params.forEach((param, index) => setBinding(frame, param.name, boundArgs[index], param.type));
     state.frames.push(frame);
     state.activeFrameId = frame.id;
-    addStep(state, lineNumber, `Function call: established ${fn.name} frame with RA:${lineNumber} and copied argument values.`, highlight);
+    addStep(state, lineNumber, `Function call: established ${fnLabel} frame with RA:${lineNumber} and copied argument values.`, highlight);
 
     const result = executeBlock(state, fn.bodyStartIndex, fn.bodyEndIndex, fn.bodyIndent, { allowReturn: true });
     if (result.didReturn) {
@@ -2465,14 +2725,14 @@
     if (fn.returnType && !valueMatchesType(noneValue, fn.returnType)) {
       throw new DiagramError(
         fn.endLine,
-        `Return Type Disagreement on Line ${fn.endLine}: ${fn.name} is annotated to return ${fn.returnType}, but reaching the end of the function implicitly returned None.`,
+        `Return Type Disagreement on Line ${fn.endLine}: ${fnLabel} is annotated to return ${fn.returnType}, but reaching the end of the function implicitly returned None.`,
         lineSpanByNumber(state, fn.endLine),
       );
     }
     addStep(
       state,
       fn.endLine,
-      `Function ${fn.name} finished without an explicit return; stored RV None.`,
+      `Function ${fnLabel} finished without an explicit return; stored RV None.`,
       lineSpanByNumber(state, fn.endLine),
       null,
       { callDepth: returnDepth },
@@ -2551,6 +2811,26 @@
     };
   }
 
+  function makeClassValue(cls) {
+    return {
+      className: cls.name,
+      display: `ID:${cls.heapId}`,
+      heapId: cls.heapId,
+      type: "class",
+      value: cls.name,
+    };
+  }
+
+  // An object's type is its class name, so annotations such as `p: Player`
+  // are checked the same way as built-in types.
+  function makeObjectValue(className, heapId) {
+    return { display: `ID:${heapId}`, heapId, isObject: true, type: className, value: heapId };
+  }
+
+  function isObjectValue(value) {
+    return Boolean(value && value.isObject);
+  }
+
   function displayFor(type, value) {
     if (type === "float") {
       return Number.isFinite(value) && Number.isInteger(value) ? value.toFixed(1) : String(value);
@@ -2581,6 +2861,9 @@
     if (value.type === "str") {
       return String(value.value);
     }
+    if (isObjectValue(value) || value.type === "class") {
+      return formatValueRepr(state, value);
+    }
     return formatValue(value);
   }
 
@@ -2597,6 +2880,12 @@
       nextSeen.add(value.heapId);
       const parts = (heapObject ? activeListValues(heapObject) : []).map((item) => formatValueRepr(state, item, nextSeen));
       return `[${parts.join(", ")}]`;
+    }
+    if (isObjectValue(value)) {
+      return `<${value.type} object at ${formatValue(value)}>`;
+    }
+    if (value.type === "class") {
+      return `<class '${value.className}'>`;
     }
     return formatValue(value);
   }
@@ -3047,6 +3336,9 @@
       );
       return result;
     }
+    if (node.type === "attribute") {
+      return evaluateAttributeAccess(state, node);
+    }
     if (node.type === "subscript") {
       const collection = evaluateExpression(node.collection, state);
       const index = evaluateExpression(node.index, state);
@@ -3105,6 +3397,9 @@
         value: evaluateExpression(keyword.value, state),
       }));
       const callable = resolveName(state, node.callee.name, node.line, node.callee.span);
+      if (callable.type === "class") {
+        return evaluateConstructorCall(state, state.program.classes.get(callable.className), args, keywords, node);
+      }
       if (callable.type !== "function") {
         return functionCallError(state, node.line, `${node.callee.name} is not a function.`, node.span);
       }
@@ -3223,6 +3518,18 @@
         kind: "list",
       };
     }
+    if (item.kind === "object") {
+      return {
+        attributes: item.attributes.map((attribute) => ({
+          name: attribute.name,
+          previousValues: attribute.previousValues.map((previous) => formatValue(previous)),
+          value: attribute.value ? formatValue(attribute.value) : "",
+        })),
+        className: item.className,
+        id: item.id,
+        kind: "object",
+      };
+    }
     return { id: item.id, kind: item.kind || "function", label: item.label };
   }
 
@@ -3303,7 +3610,30 @@
   const listIndexColumnWidth = 44;
   const heapColumnInnerWidth = 270 - 56;
 
+  function objectNameColumnWidth(context, item) {
+    context.save();
+    context.font = "600 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+    const widest = item.attributes.reduce((max, attribute) => Math.max(max, context.measureText(attribute.name).width), 0);
+    context.restore();
+    return clampNumber(Math.ceil(widest) + 20, 56, Math.floor(heapColumnInnerWidth / 2));
+  }
+
+  function objectRowLines(context, attribute, valueColumnWidth) {
+    return Math.max(1, bindingValueLines(context, attribute, valueColumnWidth - 16).length);
+  }
+
   function heapItemHeight(item, context) {
+    if (item.kind === "object") {
+      if (!item.attributes.length) {
+        return 60;
+      }
+      const valueColumnWidth = heapColumnInnerWidth - objectNameColumnWidth(context, item);
+      const totalLines = item.attributes.reduce(
+        (sum, attribute) => sum + objectRowLines(context, attribute, valueColumnWidth),
+        0,
+      );
+      return 34 + totalLines * bindingRowHeight + 10;
+    }
     if (item.kind !== "list") {
       return 72;
     }
@@ -3573,6 +3903,8 @@
       }
       if (item.kind === "list") {
         drawListHeapItem(context, column, y, height, item, innerWidth);
+      } else if (item.kind === "object") {
+        drawObjectHeapItem(context, column, y, height, item, innerWidth);
       } else {
         drawFunctionHeapItem(context, column, y, height, item);
       }
@@ -3676,6 +4008,70 @@
     context.stroke();
 
     context.strokeStyle = "#60a5fa";
+    context.lineWidth = 1.2;
+    context.strokeRect(tableX, tableY, tableWidth, tableHeight);
+    context.restore();
+  }
+
+  // Draws an object as its class name above a two-column table: attribute
+  // names on the left and their current (and struck-out previous) values on
+  // the right.
+  function drawObjectHeapItem(context, column, y, height, item, innerWidth) {
+    context.save();
+    context.fillStyle = "#fff7ed";
+    context.strokeStyle = "#ea580c";
+    context.lineWidth = 1.5;
+    roundRect(context, column.x + 14, y, column.width - 28, height, 8);
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#7c2d12";
+    context.font = "700 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+    context.fillText(`ID:${item.id}  ${item.className}`, column.x + 28, y + 22, column.width - 56);
+
+    if (!item.attributes.length) {
+      context.fillStyle = "#64748b";
+      context.font = "13px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+      context.fillText("no attributes", column.x + 28, y + 44, innerWidth);
+      context.restore();
+      return;
+    }
+
+    const tableX = column.x + 28;
+    const tableY = y + 34;
+    const tableWidth = innerWidth;
+    const nameColumnWidth = objectNameColumnWidth(context, item);
+    const valueColumnWidth = tableWidth - nameColumnWidth;
+
+    let rowY = tableY;
+    item.attributes.forEach((attribute, rowIndex) => {
+      const rowHeight = objectRowLines(context, attribute, valueColumnWidth) * bindingRowHeight;
+      if (rowIndex % 2 === 1) {
+        context.fillStyle = "#ffedd5";
+        context.fillRect(tableX, rowY, tableWidth, rowHeight);
+      }
+      context.font = "600 15px ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace";
+      context.fillStyle = "#0f172a";
+      context.fillText(attribute.name, tableX + 10, rowY + 20, nameColumnWidth - 16);
+      drawBindingValue(context, attribute, tableX + nameColumnWidth + 10, rowY + 20, valueColumnWidth - 16);
+
+      context.strokeStyle = "#fed7aa";
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(tableX, rowY + rowHeight);
+      context.lineTo(tableX + tableWidth, rowY + rowHeight);
+      context.stroke();
+      rowY += rowHeight;
+    });
+    const tableHeight = rowY - tableY;
+
+    context.strokeStyle = "#fdba74";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(tableX + nameColumnWidth, tableY);
+    context.lineTo(tableX + nameColumnWidth, tableY + tableHeight);
+    context.stroke();
+
+    context.strokeStyle = "#fb923c";
     context.lineWidth = 1.2;
     context.strokeRect(tableX, tableY, tableWidth, tableHeight);
     context.restore();

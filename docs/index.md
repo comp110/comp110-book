@@ -19,6 +19,7 @@ This site is a learning resource for **COMP 110: Introduction to Programming** a
     3. [Composing If and While](control_flow/composition.md): Combine decisions and repetition by nesting conditionals and loops.
 
 4. [List Fundamentals](list-fundamentals.md): Learn how Python lists store many values under one name, how they differ from primitive types, and how loops and functions work with them.
+5. [Intro to OOP](intro-oop.md): Learn how to define your own types with classes, construct objects, and give those objects behavior with methods. 
 
 
 ## Practice

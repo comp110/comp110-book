@@ -2525,6 +2525,161 @@ def test_python_diagram_runner_supports_type_constructors() -> None:
         server.server_close()
 
 
+def test_python_diagram_runner_supports_classes_and_objects() -> None:
+    subprocess.run(
+        [sys.executable, "-m", "zensical", "build", "--clean"],
+        cwd=ROOT,
+        check=True,
+    )
+
+    server, base_url = serve_site()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            errors: list[str] = []
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            page.goto(f"{base_url}/python-diagram/", wait_until="domcontentloaded")
+            runner = page.locator("[data-python-diagram-runner]").first
+            runner.locator(".cm-editor").wait_for(state="visible", timeout=60_000)
+            output = runner.locator(".python-runner__output")
+
+            def run(source: str) -> None:
+                runner.evaluate(
+                    "(element, source) => element.pythonDiagramRunner.source.setValue(source)",
+                    source,
+                )
+                runner.locator(".python-diagram-runner__run").click()
+
+            run(
+                "class Player:\n"
+                "    \"\"\"A player.\"\"\"\n"
+                "\n"
+                "    name: str\n"
+                "    score: int\n"
+                "\n"
+                "    def __init__(self, name: str) -> None:\n"
+                "        self.name = name\n"
+                "        self.score = 0\n"
+                "\n"
+                "    def earn_points(self, points: int) -> None:\n"
+                "        self.score = self.score + points\n"
+                "\n"
+                "\n"
+                "def leader(a: Player, b: Player) -> Player:\n"
+                "    if a.score >= b.score:\n"
+                "        return a\n"
+                "    return b\n"
+                "\n"
+                "\n"
+                "ada: Player = Player(name=\"Ada\")\n"
+                "grace: Player = Player(\"Grace\")\n"
+                "teammate: Player = ada\n"
+                "teammate.score = 25\n"
+                "grace.earn_points(points=30)\n"
+                "print(leader(a=ada, b=grace).name)\n"
+                "print(ada.score)\n",
+            )
+            expect(output).to_contain_text("Finished diagram trace.")
+
+            result = runner.evaluate(
+                """
+                (element) => {
+                  const state = element.pythonDiagramRunner;
+                  const initStep = state.trace.find(
+                    (step) => step.message.startsWith("Function call: established Player#__init__"),
+                  );
+                  const snapshot = state.trace[state.trace.length - 1].snapshot;
+                  return {
+                    emptyObject: initStep.snapshot.heap.find((item) => item.kind === "object"),
+                    globals: snapshot.frames[0].bindings.map((binding) => `${binding.name}=${binding.value}`),
+                    frames: snapshot.frames.slice(1).map((frame) => frame.name),
+                    heap: snapshot.heap,
+                    output: snapshot.output,
+                  };
+                }
+                """,
+            )
+            assert result["emptyObject"] == {
+                "attributes": [
+                    {"name": "name", "previousValues": [], "value": ""},
+                    {"name": "score", "previousValues": [], "value": ""},
+                ],
+                "className": "Player",
+                "id": 2,
+                "kind": "object",
+            }
+            assert result["globals"] == [
+                "Player=ID:0",
+                "leader=ID:1",
+                "ada=ID:2",
+                "grace=ID:3",
+                "teammate=ID:2",
+            ]
+            assert result["frames"] == [
+                "Player#__init__",
+                "Player#__init__",
+                "Player#earn_points",
+                "leader",
+            ]
+            assert result["heap"] == [
+                {"id": 0, "kind": "class", "label": "Class Lines 1 - 12"},
+                {"id": 1, "kind": "function", "label": "Fn Lines 15 - 18"},
+                {
+                    "attributes": [
+                        {"name": "name", "previousValues": [], "value": "\"Ada\""},
+                        {"name": "score", "previousValues": ["0"], "value": "25"},
+                    ],
+                    "className": "Player",
+                    "id": 2,
+                    "kind": "object",
+                },
+                {
+                    "attributes": [
+                        {"name": "name", "previousValues": [], "value": "\"Grace\""},
+                        {"name": "score", "previousValues": ["0"], "value": "30"},
+                    ],
+                    "className": "Player",
+                    "id": 3,
+                    "kind": "object",
+                },
+            ]
+            assert result["output"] == ["Grace", "25"]
+
+            run(
+                "class Player:\n"
+                "    score: int\n"
+                "\n"
+                "    def __init__(self) -> None:\n"
+                "        score = 0\n"
+                "\n"
+                "\n"
+                "ada: Player = Player()\n"
+                "print(ada.score)\n",
+            )
+            expect(output).to_have_class(re.compile(r"\bis-error\b"))
+            expect(output).to_have_text(
+                "AttributeError on Line 9: 'Player' object has no attribute 'score'.",
+            )
+
+            run(
+                "class Player:\n"
+                "    score: int\n"
+                "\n"
+                "\n"
+                "ada: Player = Player()\n"
+                "ada = 5\n"
+                "count: int = Player()\n",
+            )
+            expect(output).to_have_text("Type error on Line 7: count expects int, got Player.")
+
+            assert not errors
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_python_diagram_runner_supports_boolean_operators() -> None:
     subprocess.run(
         [sys.executable, "-m", "zensical", "build", "--clean"],
