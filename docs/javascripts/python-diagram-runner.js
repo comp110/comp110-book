@@ -1378,6 +1378,7 @@
           bodyIndent: methodBody.indent,
           bodyStartIndex: index + 1,
           endLine: methodBody.endLine,
+          isInitializer: parsedMethod.name === "__init__",
           line: member.number,
           lineInfo: member,
           qualifiedName: `${name}#${parsedMethod.name}`,
@@ -2404,19 +2405,21 @@
       : makeNoneValue();
     const fn = frame.fn;
     const returnDepth = activeCallDepth(state);
-    frame.returnValue = value;
     if (fn && fn.returnType && !valueMatchesType(value, fn.returnType)) {
+      frame.returnValue = value;
       throw new DiagramError(
         line.number,
         `Return Type Disagreement on Line ${line.number}: ${frame.name} is annotated to return ${fn.returnType}, but the return statement produced ${value.type}.`,
         lineCodeSpan(line),
       );
     }
+    const storedValue = initializerReturnValue(frame) || value;
+    frame.returnValue = storedValue;
     state.activeFrameId = findPreviousOpenFrameId(state, frame.id);
     addStep(
       state,
       line.number,
-      `Return statement: stored RV ${formatValue(value)} and jumped back to RA:${frame.returnAddress}.`,
+      `Return statement: stored RV ${formatValue(storedValue)} and jumped back to RA:${frame.returnAddress}.`,
       lineCodeSpan(line),
       null,
       { callDepth: returnDepth },
@@ -2720,7 +2723,8 @@
 
     const noneValue = makeNoneValue();
     const returnDepth = activeCallDepth(state);
-    frame.returnValue = noneValue;
+    const storedValue = initializerReturnValue(frame) || noneValue;
+    frame.returnValue = storedValue;
     state.activeFrameId = findPreviousOpenFrameId(state, frame.id);
     if (fn.returnType && !valueMatchesType(noneValue, fn.returnType)) {
       throw new DiagramError(
@@ -2732,12 +2736,22 @@
     addStep(
       state,
       fn.endLine,
-      `Function ${fnLabel} finished without an explicit return; stored RV None.`,
+      `Function ${fnLabel} finished without an explicit return; stored RV ${formatValue(storedValue)}.`,
       lineSpanByNumber(state, fn.endLine),
       null,
       { callDepth: returnDepth },
     );
-    return noneValue;
+    return storedValue;
+  }
+
+  // Simplification for students: __init__ frames show the ID self refers to
+  // as their RV, since the constructor call evaluates to that object.
+  function initializerReturnValue(frame) {
+    if (!frame.fn || !frame.fn.isInitializer) {
+      return null;
+    }
+    const selfBinding = frame.bindings.find((binding) => binding.name === "self");
+    return selfBinding ? selfBinding.value : null;
   }
 
   function functionCallError(state, lineNumber, detail, highlight = null) {

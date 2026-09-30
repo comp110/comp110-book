@@ -2596,10 +2596,12 @@ def test_python_diagram_runner_supports_classes_and_objects() -> None:
                     frames: snapshot.frames.slice(1).map((frame) => frame.name),
                     heap: snapshot.heap,
                     output: snapshot.output,
+                    returnValues: snapshot.frames.slice(1).map((frame) => frame.returnValue),
                   };
                 }
                 """,
             )
+            assert result["returnValues"] == ["ID:2", "ID:3", "None", "ID:3"]
             assert result["emptyObject"] == {
                 "attributes": [
                     {"name": "name", "previousValues": [], "value": ""},
