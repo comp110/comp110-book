@@ -37,7 +37,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -48,7 +48,7 @@ Let's read this definition piece by piece:
 - `class Player:` defines a new type named `Player`. Class names are capitalized, and a name made of several words capitalizes each word with no underscores, as in `GameBoard` or `WeatherReport`. This makes class names easy to tell apart from snake_case variable and function names.
 - The docstring describes what the class represents.
 - `name: str` and `score: int` declare the class's **attributes**. An attribute is a variable that belongs to an object. Every `Player` object will have its own `name` and its own `score`. These declarations tell us each attribute's type, but they do not give the attributes values.
-- `def __init__(self, name: str) -> None:` defines a special function that Python calls to initialize each new `Player` object. We will look at it closely in the next section.
+- `def __init__(self, name: str):` defines a special function that Python calls to initialize each new `Player` object. We will look at it closely in the next section.
 
 Just as defining a function does not call it, defining a class does not create any objects. A class definition is a blueprint: it describes the attributes every `Player` object will have, and it can be used to create as many `Player` objects as a program needs.
 
@@ -63,7 +63,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -111,7 +111,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -136,7 +136,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -160,7 +160,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -191,7 +191,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -223,7 +223,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -250,7 +250,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -289,7 +289,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -312,7 +312,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -368,7 +368,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -408,7 +408,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0
@@ -450,7 +450,7 @@ class Point:
     x: float
     y: float
 
-    def __init__(self, x: float, y: float) -> None:
+    def __init__(self, x: float, y: float):
         """Initialize a Point's coordinates."""
         self.x = x
         self.y = y
@@ -485,7 +485,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         score = 0
@@ -509,7 +509,7 @@ class Player:
     name: str
     score: int
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str):
         """Initialize a new Player with a score of 0."""
         self.name = name
         self.score = 0

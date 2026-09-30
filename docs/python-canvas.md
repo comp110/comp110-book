@@ -22,7 +22,7 @@ from browser_canvas import circle, clear, line, rectangle, text
 
 
 class Turtle:
-    def __init__(self, x: float, y: float, heading: float = 0.0) -> None:
+    def __init__(self, x: float, y: float, heading: float = 0.0):
         self.x = x
         self.y = y
         self.heading = heading

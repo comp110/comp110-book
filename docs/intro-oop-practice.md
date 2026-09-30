@@ -22,7 +22,7 @@ class Plant:
     name: str
     height: float
 
-    def __init__(self, name: str, height: float) -> None:
+    def __init__(self, name: str, height: float):
         """Initialize a Plant's name and height in centimeters."""
         self.name = name
         self.height = height
@@ -58,7 +58,7 @@ class Plant:
     name: str
     height: float
 
-    def __init__(self, name: str, height: float) -> None:
+    def __init__(self, name: str, height: float):
         """Initialize a Plant's name and height in centimeters."""
         self.name = name
         self.height = height
@@ -93,7 +93,7 @@ class Rectangle:
     length: float
     width: float
 
-    def __init__(self, length: float, width: float) -> None:
+    def __init__(self, length: float, width: float):
         """Initialize a Rectangle's length and width."""
         # TODO: Replace each 0.0 with the matching parameter.
         self.length = 0.0
@@ -121,7 +121,7 @@ print(area(rect=room))  # Expected: 120.0
         length: float
         width: float
 
-        def __init__(self, length: float, width: float) -> None:
+        def __init__(self, length: float, width: float):
             """Initialize a Rectangle's length and width."""
             self.length = length
             self.width = width
@@ -143,7 +143,7 @@ class Plant:
     name: str
     height: float
 
-    def __init__(self, name: str, height: float) -> None:
+    def __init__(self, name: str, height: float):
         """Initialize a Plant's name and height in centimeters."""
         self.name = name
         self.height = height
@@ -191,7 +191,7 @@ class Plant:
     name: str
     height: float
 
-    def __init__(self, name: str, height: float) -> None:
+    def __init__(self, name: str, height: float):
         """Initialize a Plant's name and height in centimeters."""
         self.name = name
         self.height = height
@@ -238,7 +238,7 @@ class Rectangle:
     length: float
     width: float
 
-    def __init__(self, length: float, width: float) -> None:
+    def __init__(self, length: float, width: float):
         """Initialize a Rectangle's length and width."""
         self.length = length
         self.width = width
@@ -289,7 +289,7 @@ class Streak:
     current: int
     best: int
 
-    def __init__(self) -> None:
+    def __init__(self):
         """Initialize a Streak with no wins yet."""
         self.current = 0
         self.best = 0
@@ -327,7 +327,7 @@ class Streak:
     current: int
     best: int
 
-    def __init__(self) -> None:
+    def __init__(self):
         """Initialize a Streak with no wins yet."""
         self.current = 0
         self.best = 0
@@ -409,7 +409,7 @@ class Streak:
     current: int
     best: int
 
-    def __init__(self) -> None:
+    def __init__(self):
         """Initialize a Streak with no wins yet."""
         self.current = 0
         self.best = 0
@@ -447,7 +447,7 @@ class Streak:
     current: int
     best: int
 
-    def __init__(self) -> None:
+    def __init__(self):
         """Initialize a Streak with no wins yet."""
         self.current = 0
         self.best = 0
@@ -483,7 +483,7 @@ class Streak:
     current: int
     best: int
 
-    def __init__(self) -> None:
+    def __init__(self):
         """Initialize a Streak with no wins yet."""
         self.current = 0
         self.best = 0
@@ -512,7 +512,7 @@ class Streak:
     current: int
     best: int
 
-    def __init__(self) -> None:
+    def __init__(self):
         """Initialize a Streak with no wins yet."""
         self.current = 0
         self.best = 0
@@ -565,7 +565,7 @@ class Plant:
     name: str
     height: float
 
-    def __init__(self, name: str, height: float) -> None:
+    def __init__(self, name: str, height: float):
         """Initialize a Plant's name and height in centimeters."""
         self.name = name
         self.height = height

@@ -1314,6 +1314,7 @@
       if (!parsed) {
         continue;
       }
+      validateReturnAnnotation(parsed, line, false);
 
       const body = findFunctionBody(lines, index, line.indent);
       const fn = {
@@ -1372,6 +1373,7 @@
             lineCodeSpan(member),
           );
         }
+        validateReturnAnnotation(parsedMethod, member, true);
         methods.set(parsedMethod.name, {
           ...parsedMethod,
           bodyEndIndex: methodBody.endIndex,
@@ -1425,6 +1427,29 @@
       validateTypeName(returnType, line.number);
     }
     return { name, params, returnType: returnType || null };
+  }
+
+  // Course convention: __init__ methods omit a return type; every other
+  // function and method must declare one.
+  function validateReturnAnnotation(parsed, line, isMethod) {
+    if (isMethod && parsed.name === "__init__") {
+      if (parsed.returnType) {
+        throw new DiagramError(
+          line.number,
+          `Unexpected Return Type on Line ${line.number}: __init__ methods do not specify a return type; remove -> ${parsed.returnType}.`,
+          lineCodeSpan(line),
+        );
+      }
+      return;
+    }
+    if (!parsed.returnType) {
+      const kind = isMethod ? "Method" : "Function";
+      throw new DiagramError(
+        line.number,
+        `Missing Return Type on Line ${line.number}: ${kind.toLowerCase()} ${parsed.name} needs a return type annotation, such as -> None.`,
+        lineCodeSpan(line),
+      );
+    }
   }
 
   function parseParameter(source, lineNumber) {

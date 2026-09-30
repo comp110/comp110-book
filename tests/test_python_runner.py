@@ -2558,7 +2558,7 @@ def test_python_diagram_runner_supports_classes_and_objects() -> None:
                 "    name: str\n"
                 "    score: int\n"
                 "\n"
-                "    def __init__(self, name: str) -> None:\n"
+                "    def __init__(self, name: str):\n"
                 "        self.name = name\n"
                 "        self.score = 0\n"
                 "\n"
@@ -2652,7 +2652,7 @@ def test_python_diagram_runner_supports_classes_and_objects() -> None:
                 "class Player:\n"
                 "    score: int\n"
                 "\n"
-                "    def __init__(self) -> None:\n"
+                "    def __init__(self):\n"
                 "        score = 0\n"
                 "\n"
                 "\n"
@@ -2674,6 +2674,39 @@ def test_python_diagram_runner_supports_classes_and_objects() -> None:
                 "count: int = Player()\n",
             )
             expect(output).to_have_text("Type error on Line 7: count expects int, got Player.")
+
+            run(
+                "class Player:\n"
+                "    score: int\n"
+                "\n"
+                "    def __init__(self) -> None:\n"
+                "        self.score = 0\n",
+            )
+            expect(output).to_have_text(
+                "Unexpected Return Type on Line 4: __init__ methods do not specify a return type; remove -> None.",
+            )
+
+            run(
+                "class Player:\n"
+                "    score: int\n"
+                "\n"
+                "    def __init__(self):\n"
+                "        self.score = 0\n"
+                "\n"
+                "    def reset(self):\n"
+                "        self.score = 0\n",
+            )
+            expect(output).to_have_text(
+                "Missing Return Type on Line 7: method reset needs a return type annotation, such as -> None.",
+            )
+
+            run(
+                "def greet(name: str):\n"
+                "    print(name)\n",
+            )
+            expect(output).to_have_text(
+                "Missing Return Type on Line 1: function greet needs a return type annotation, such as -> None.",
+            )
 
             assert not errors
             browser.close()
