@@ -18,6 +18,7 @@ nav = [
       {"Composing If and While" = "control_flow/composition.md"},
     ]},
     {"List Fundamentals" = "list-fundamentals.md"},
+    {"Intro to OOP" = "intro-oop.md"},  
   ]},
   {"Practice" = [
     {"Conditional Statements" = "conditional-practice.md"},
@@ -29,7 +30,7 @@ nav = [
       {"Lists and while Loops" = "lists/list-while-practice.md"},
       # {"Lists and for Loops" = "lists/list-for-loop-practice.md"},
     ]},
-    {"Intro to OOP" = "intro-oop.md"},  
+    {"OOP Basics" = "intro-oop-practice.md"},
   ]},
 ]
 

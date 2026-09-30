@@ -5,7 +5,7 @@ description: Learn how to define your own types with classes, construct objects,
 
 ## Why Define a Class?
 
-So far, each object in this course has had a data type that is automatically built into Python, such as an `int`, a `str`, or a `list`. Many programs work with objects that are described by _several_ related values. A player in a points-based game, for example, has a name and a score.
+So far, each object in this course has had a data type that is automatically built into Python, such as an `int`, a `str`, or a `list`. Many programs work with objects that are described by _several_ related values, often of different types. A player in a points-based game, for example, has a name and a score.
 
 With only the types we know, we could use one variable for each value:
 
@@ -22,13 +22,13 @@ print(player_1_name + " has " + str(player_1_score) + " points")
 print(player_2_name + " has " + str(player_2_score) + " points")
 ~~~
 
-This works, but only the naming convention connects `player_1_name` to `player_1_score`. Python treats them as two unrelated variables. Adding a third player means inventing two more names, and a function that works with one player would need a separate parameter for each of the player's values.
+This works, but only the naming convention connects `player_1_name` to `player_1_score`. Python treats them as two unrelated variables. Adding a third player means declaring, initializing, and keeping track of two more variables, and a function that works with one player would need a separate parameter for each of the player's values.
 
-A **class** lets us define a new type that groups related values together. A value of that type is called an **object**. With a `Player` class, one variable can refer to one `Player` object, and that object holds both the player's name and score.
+A **class** lets us define a new type that groups related values together. A value of that type is called an **object**. With a `Player` class, one variable can refer to one `Player` object, and that object holds both the player's name and score. Another `Player` object would also hold a name and a score, but they could contain different values.
 
 ## Defining a Class
 
-A **class definition** begins with the keyword `class`, followed by the class's name and a colon. The indented lines that follow make up the class's body.
+A **class definition** begins with the keyword `class`, followed by the class's capitalized name and a colon. The indented lines that follow make up the class's body.
 
 ~~~python
 class Player:
@@ -45,16 +45,16 @@ class Player:
 
 Let's read this definition piece by piece:
 
-- `class Player:` defines a new type named `Player`. Class names are capitalized, and a name made of several words capitalizes each word with no underscores, as in `GameBoard` or `WeatherReport`. This makes class names easy to tell apart from snake case variable and function names.
+- `class Player:` defines a new type named `Player`. Class names are capitalized, and a name made of several words capitalizes each word with no underscores, as in `GameBoard` or `WeatherReport`. This makes class names easy to tell apart from snake_case variable and function names.
 - The docstring describes what the class represents.
 - `name: str` and `score: int` declare the class's **attributes**. An attribute is a variable that belongs to an object. Every `Player` object will have its own `name` and its own `score`. These declarations tell us each attribute's type, but they do not give the attributes values.
 - `def __init__(self, name: str) -> None:` defines a special function that Python calls to initialize each new `Player` object. We will look at it closely in the next section.
 
-Just as defining a function does not call it, defining a class does not create any objects. A class definition is a blueprint: it describes what every `Player` object will have, and it can be used to create as many `Player` objects as a program needs.
+Just as defining a function does not call it, defining a class does not create any objects. A class definition is a blueprint: it describes the attributes every `Player` object will have, and it can be used to create as many `Player` objects as a program needs.
 
 ## Constructing Objects
 
-To create a new object, we call the class's name as if it were a function. This is called a **constructor call**, and each object it creates is called an **instance** of the class. The words "object" and "instance" are often used interchangeably: `ada` below refers to a `Player` object, which is an instance of the `Player` class.
+To create a new object, we call the class's name as if it were a function. This is called a **constructor call**, and each object it creates is called an **instance** of the class. The words "object" and "instance" are often used interchangeably: `ada` below refers to a `Player` object, which is an **instance** of the `Player` class.
 
 ~~~python { runnable=true editable=true title="A Constructor Call" }
 class Player:
@@ -79,7 +79,7 @@ The class name is also the type used in the variable's type annotation: `ada: Pl
 
 ### The `__init__` Method and `self`
 
-The special function named `__init__` (pronounced "dunder init," short for "double underscore init") is the class's **initializer**. Its job is to give each attribute of a brand new object its first value. A function defined inside a class is called a **method**; `__init__` is the first method we have seen, and we will write many more later on this page.
+The special function named `__init__` (pronounced "dunder init," short for "double underscore init") is the class's **initializer** (also called a **constructor**). Its job is to give each attribute of a brand new object its first value. A function defined inside a class is called a **method**; `__init__` is the first method we have seen, and we will write many more later on this page.
 
 The first parameter of `__init__` is named `self`. When Python calls `__init__`, it initializes `self` with a reference to the new object being constructed. Inside `__init__`, `self.name` means "the `name` attribute of the object `self` refers to."
 
@@ -90,19 +90,19 @@ Python evaluates the constructor call `Player(name="Ada")` in these steps:
 3. Execute the body of `__init__`. The statement `self.name = name` assigns `"Ada"` to the object's `name` attribute, and `self.score = 0` assigns `0` to its `score` attribute.
 4. When the `__init__` call completes, the constructor call evaluates to a reference to the newly initialized object.
 
-Then the assignment stores that reference in the variable `ada`.
+Then, the assignment stores that reference in the global variable, `ada`.
 
 Notice that the constructor call provides an argument only for `name`. Python supplies the value of `self` automatically. Also notice the difference between `self.name` and `name` in the statement `self.name = name`: the left-hand side is the object's attribute, and the right-hand side is the `__init__` call's parameter.
 
 ## Objects Live on the Heap
 
-Values such as `int`, `float`, and `str` are drawn directly inside a variable's box in a memory diagram. Objects are drawn differently. Each object is drawn in a separate area of the diagram called the **heap**. A variable whose type is a class holds a **reference** to an object, which we draw as an arrow from the variable to the object on the heap.
+Primitive types, such as `int`, `float`, and `str`, are drawn directly inside a variable's box in a memory diagram. Reference types are drawn differently. Each object is drawn in a separate area of the diagram called the **heap**. A variable that stores an instance of a class (an object of that class' type) will refer to the object on the heap based on its ID.
 
 Step through this diagram. Pay attention to three moments:
 
-- When the `__init__` frame is established, `self` has an arrow to the new `Player` object, whose attributes are still empty.
-- As each statement in `__init__` is executed, an attribute of the object on the heap receives a value.
-- After the `__init__` call completes, the variable `ada` in Globals has an arrow to the same object.
+- When the `__init__` frame is established, `self` stores the ID of the new `Player` object, whose attributes are still empty.
+- As each statement in the `__init__` method body is executed, an attribute of the object on the heap receives a value.
+- After the `__init__` call completes, the variable `ada` in Globals also refers to the object's ID.
 
 ~~~python_diagram_runner { editable=true title="Constructing an Object" }
 class Player:
@@ -127,7 +127,7 @@ The `__init__` frame and its variables are gone once the call completes, but the
 
 We access an object's attributes with **dot notation**: an expression that evaluates to an object, a dot, and an attribute name. To evaluate `ada.score`, Python reads the reference stored in `ada`, follows it to the object on the heap, and reads that object's `score` attribute.
 
-An attribute can also appear on the left-hand side of an assignment. The same assignment rules from before apply: Python evaluates the right-hand side first, then stores the result in the location named on the left-hand side.
+An attribute can also appear on the left-hand side of an assignment. The same assignment rules from before apply: Python evaluates the right-hand side first, then stores the result in the location named on the left-hand side. For instance, this could be used to update `ada`'s `score` attribute.
 
 ~~~python_diagram_runner { editable=true title="Reading and Assigning an Attribute" }
 class Player:
@@ -214,7 +214,7 @@ Reassigning an alias is different from assigning one of its attributes. If the p
 
 ## Objects as Arguments and Return Values
 
-A function can have a parameter whose type is a class. When the function is called, the parameter is initialized with a copy of the argument's _reference_, so the parameter and the argument are aliases of the same object.
+A function can have a parameter that refers to an instance of a class. When the function is called, the parameter is initialized with a copy of the argument's _reference_, so the parameter and the argument are aliases of the same object.
 
 ~~~python_diagram_runner { editable=true title="Passing an Object to a Function" }
 class Player:

@@ -33,3 +33,5 @@ This site is a learning resource for **COMP 110: Introduction to Programming** a
     1. [List Fundamentals](lists/list-fundamentals-practice.md): Practice initializing, accessing, and mutating Python lists (our first reference type!).
     2. [List and while Loops](lists/list-while-practice.md): Practice using while loops to read, count, search, and build lists, including nested loops over 2D lists.
     <!-- 3. [List and for Loops](lists/list-for-loop-practice.md): Use for loops to visit every element of a list, and learn when a for loop or a while loop is the better fit. -->
+
+6. [Object-Oriented Programming Basics](intro-oop-practice.md): Trace memory diagrams, write classes and methods, and evaluate code that works with objects.
