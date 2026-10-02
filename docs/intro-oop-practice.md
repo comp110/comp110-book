@@ -601,3 +601,55 @@ print(tallest.name)
     - In Globals, `fern` has an arrow to the first object. Both `cactus` and `tallest` have arrows to the second object, so they are aliases.
     - No `__init__`, `grow`, or `taller` frames remain; each is gone once its call completes.
     - The output is `12.5`, `16.0`, and `Cactus`. After `cactus.grow(amount=10.0)`, the cactus is `14.0` centimeters tall, so `taller` returns a reference to the cactus's object. `tallest.grow(amount=2.0)` therefore grows the cactus to `16.0`.
+
+## Part 4: Classes with Attributes of Objects from other Classes
+
+### Line class
+
+Create a Line class with two attributes: a starting point (`start: Point`) and an ending point (`end: Point`).
+The Line class should have the following method definitions:
+
+- `def __init__(self, start: Point, end: Point):`
+- `def get_length(self) -> float:` calculates the length of the line
+- `def get_slope(self) -> float:` calculates the slope (from start to end)
+
+
+~~~python { runnable=true editable=true title="Point class and object" }
+class Point:
+   x: float
+   y: float
+
+   def __init__(self, x: float, y: float):
+       self.x = x
+       self.y = y
+
+   def dist_from_origin(self) -> float:
+       return (self.x**2 + self.y**2) ** 0.5
+
+   def translate_x(self, dx: float) -> None:
+       self.x += dx
+
+   def translate_y(self, dy: float) -> None:
+       self.y += dy
+
+class Line: 
+    # TODO: Declare two attributes
+
+    # TODO: __init__ method
+
+    # TODO: get_length method
+
+    # TODO: get_slope method
+
+pt: Point = Point(2.0, 1.0)
+
+print(pt)
+~~~
+
+### __str__ magic method
+
+Next, add a __str__ magic method to the Point and Line classes above. 
+
+### __repr__ magic method
+
+Finally, add a __repr__ magic method to the Point and Line classes above.
