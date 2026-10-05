@@ -677,11 +677,11 @@ print(pt)
 
 ### `__str__` magic method
 
-Right now, printing a `Point` or a `Line` prints something like `<__main__.Point object at 0x7f3a2c1b9d50>`. That is Python's default description of an object, and it does not tell a person anything useful about the point. A **magic method** is a method with a special name, surrounded by double underscores, that Python calls for you in certain situations. `__init__` is one you already know: Python calls it when you construct an object.
+Right now, printing a `Point` or a `Line` prints something like `<__main__.Point object at 0x7f3a2c1b9d50>`. That is Python's default description of an object, and it does not tell a person anything useful (other than the object's memory address, or location it's being stored in memory). A **magic method** is a method with a special name, surrounded by double underscores, that Python calls for you in certain situations. `__init__` is one you already know: Python calls it when you construct an object.
 
 When you call `str(pt)` or `print(pt)`, Python calls the object's `__str__` method and uses the string it returns. `__str__` should return a readable description meant for a person.
 
-The code below contains complete `Point` and `Line` classes, plus a `__str__` method in each class for you to finish:
+The code below contains complete `Point` and `Line` classes. Write a `__str__` method definition in each class, including its signature, where the `TODO` comments are:
 
 - `Point`: `__str__` returns the point's coordinates in parentheses, separated by a comma and a space. For a `Point` with `x` `2.0` and `y` `1.0`, it returns `"(2.0, 1.0)"`.
 - `Line`: `__str__` returns the starting point, the word `to`, and the ending point. For a `Line` from `(2.0, 1.0)` to `(5.0, 5.0)`, it returns `"(2.0, 1.0) to (5.0, 5.0)"`.
@@ -712,10 +712,7 @@ class Point:
         """Move this point dy units vertically."""
         self.y += dy
 
-    def __str__(self) -> str:
-        """Return a readable description of this point, like (2.0, 1.0)."""
-        # TODO: Replace return "" with your implementation.
-        return ""
+    # TODO: Define a __str__ method.
 
 
 class Line:
@@ -739,10 +736,7 @@ class Line:
         """Return the slope of this line, from start to end."""
         return (self.end.y - self.start.y) / (self.end.x - self.start.x)
 
-    def __str__(self) -> str:
-        """Return a readable description of this line, like (2.0, 1.0) to (5.0, 5.0)."""
-        # TODO: Replace return "" with your implementation. Use Point's __str__.
-        return ""
+    # TODO: Define a __str__ method that uses Point's __str__.
 
 
 pt: Point = Point(2.0, 1.0)
@@ -757,7 +751,11 @@ print(line)  # Expected: (3.0, 1.0) to (5.0, 5.0)
 
 The last two lines move `pt` and print `line` again. Because `line.start` and `pt` are aliases of one `Point` object, the line's description changes too.
 
-??? tip "Hint"
+??? tip "Hint: the signature"
+
+    Like every method, `__str__`'s first parameter is `self`. Python calls it with no other arguments, so `self` is its only parameter. Its return type is the type of value it returns.
+
+??? tip "Hint: the body"
 
     Inside `Point`'s `__str__`, `self.x` is a `float`, so convert it with `str(self.x)` before concatenating it with other strings. Inside `Line`'s `__str__`, `str(self.start)` returns whatever `Point`'s `__str__` returns.
 
@@ -781,7 +779,7 @@ The last two lines move `pt` and print `line` again. Because `line.start` and `p
 
 Python has a second magic method for describing an object as a string: `__repr__` (short for *representation*). Where `__str__` is meant for a person reading output, `__repr__` is meant for a programmer. It should return a string that looks like the Python expression that would construct an equal object. Python calls `__repr__` when you call `repr(pt)`, and also when it displays objects stored inside a list, so `print([pt])` uses `__repr__`, not `__str__`.
 
-The code below includes completed `__str__` methods. Finish the `__repr__` method in each class:
+The code below includes completed `__str__` methods. Write a `__repr__` method definition in each class, including its signature, where the `TODO` comments are:
 
 - `Point`: `__repr__` returns a constructor call expression. For a `Point` with `x` `2.0` and `y` `1.0`, it returns `"Point(2.0, 1.0)"`.
 - `Line`: `__repr__` returns a constructor call expression whose arguments are the representations of its two points. For a `Line` from `(2.0, 1.0)` to `(5.0, 5.0)`, it returns `"Line(Point(2.0, 1.0), Point(5.0, 5.0))"`.
@@ -816,10 +814,7 @@ class Point:
         """Return a readable description of this point, like (2.0, 1.0)."""
         return "(" + str(self.x) + ", " + str(self.y) + ")"
 
-    def __repr__(self) -> str:
-        """Return a constructor expression for this point, like Point(2.0, 1.0)."""
-        # TODO: Replace return "" with your implementation.
-        return ""
+    # TODO: Define a __repr__ method.
 
 
 class Line:
@@ -847,10 +842,7 @@ class Line:
         """Return a readable description of this line, like (2.0, 1.0) to (5.0, 5.0)."""
         return str(self.start) + " to " + str(self.end)
 
-    def __repr__(self) -> str:
-        """Return a constructor expression for this line, like Line(Point(2.0, 1.0), Point(5.0, 5.0))."""
-        # TODO: Replace return "" with your implementation. Use Point's __repr__.
-        return ""
+    # TODO: Define a __repr__ method that uses Point's __repr__.
 
 
 pt: Point = Point(2.0, 1.0)
@@ -863,6 +855,10 @@ print(line)  # Expected: (2.0, 1.0) to (5.0, 5.0)
 ~~~
 
 The last line checks that `print` still uses `__str__` even after you have defined `__repr__`.
+
+??? tip "Hint"
+
+    `__repr__`'s signature has the same shape as `__str__`'s. In `Point`'s `__repr__`, start from what `Point`'s `__str__` returns and add the class name in front.
 
 ??? note "Show a solution"
 
