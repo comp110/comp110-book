@@ -18,6 +18,7 @@ nav = [
       {"Composing If and While" = "control_flow/composition.md"},
     ]},
     {"List Fundamentals" = "list-fundamentals.md"},
+    {"Unit Testing and Modularity" = "unit-testing.md"},
     {"Intro to OOP" = "intro-oop.md"},  
   ]},
   {"Practice" = [
