@@ -2887,6 +2887,30 @@ def test_python_diagram_runner_supports_boolean_operators() -> None:
                 assert result["steps"][-1]["failed"] is True
                 assert result["steps"][-1]["line"] == 1
 
+            # == compares list items while is / is not compare identity.
+            result = run_source(
+                "rolls: list[int] = [4, 6, 3]\n"
+                "same: list[int] = rolls\n"
+                "copy: list[int] = [4, 6, 3]\n"
+                "nothing = None\n"
+                "print(rolls == same, rolls is same)\n"
+                "print(rolls == copy, rolls is copy, rolls is not copy)\n"
+                "print([1, [2]] == [1, [2]], [1] != [1, 2], 2 == 2.0)\n"
+                "print(nothing is None, rolls is None, not rolls is not same)\n"
+            )
+            expect(output).to_contain_text("Finished diagram trace.")
+            assert result["output"] == [
+                "True True",
+                "True False True",
+                "True True True",
+                "True False True",
+            ]
+            assert any(
+                step["message"] == "Comparison expression: ID:0 is not ID:1 -> True."
+                and step["selected"] == "rolls is not copy"
+                for step in result["steps"]
+            )
+
             assert not errors
             browser.close()
     finally:

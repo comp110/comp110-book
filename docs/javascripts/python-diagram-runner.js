@@ -2981,7 +2981,7 @@
       }
       if (/[A-Za-z_]/.test(char)) {
         const match = /^[A-Za-z_]\w*/.exec(source.slice(index));
-        const type = ["and", "or", "not"].includes(match[0]) ? "operator" : "identifier";
+        const type = ["and", "or", "not", "is"].includes(match[0]) ? "operator" : "identifier";
         tokens.push({ end: baseOffset + index + match[0].length, type, value: match[0], start: baseOffset + index });
         index += match[0].length;
         continue;
@@ -3109,14 +3109,18 @@
     return parseComparison(stream);
   }
 
-  function isComparisonOperator(value) {
-    return ["==", "!=", "<", "<=", ">", ">="].includes(value);
+  function isComparisonOperator(token) {
+    return token.type === "operator" && ["==", "!=", "<", "<=", ">", ">=", "is"].includes(token.value);
   }
 
   function parseComparison(stream) {
     let node = parseAdditive(stream);
-    while (isComparisonOperator(stream.peek().value)) {
-      const operator = stream.consume().value;
+    while (isComparisonOperator(stream.peek())) {
+      let operator = stream.consume().value;
+      if (operator === "is" && stream.peek().type === "operator" && stream.peek("not")) {
+        stream.consume();
+        operator = "is not";
+      }
       const right = parseAdditive(stream);
       node = {
         left: node,
@@ -3352,7 +3356,7 @@
     if (node.type === "comparison") {
       const left = evaluateExpression(node.left, state);
       const right = evaluateExpression(node.right, state);
-      const result = applyComparisonOperator(node.operator, left, right, node.line);
+      const result = applyComparisonOperator(state, node.operator, left, right, node.line);
       addStep(state, node.line, `Comparison expression: ${formatValue(left)} ${node.operator} ${formatValue(right)} -> ${formatValue(result)}.`, node.span);
       return result;
     }
@@ -3484,12 +3488,16 @@
     return makeValue(type, value);
   }
 
-  function applyComparisonOperator(operator, left, right, lineNumber) {
+  function applyComparisonOperator(state, operator, left, right, lineNumber) {
     let value;
     if (operator === "==") {
-      value = left.value === right.value;
+      value = valuesEqual(state, left, right);
     } else if (operator === "!=") {
-      value = left.value !== right.value;
+      value = !valuesEqual(state, left, right);
+    } else if (operator === "is") {
+      value = isSameObject(left, right);
+    } else if (operator === "is not") {
+      value = !isSameObject(left, right);
     } else {
       const comparable = (isNumeric(left) && isNumeric(right)) || (left.type === "str" && right.type === "str");
       if (!comparable) {
@@ -3508,6 +3516,27 @@
       }
     }
     return makeValue("bool", value);
+  }
+
+  // Lists compare item by item; objects without __eq__ compare by identity.
+  function valuesEqual(state, left, right) {
+    if (left.type === "list" && right.type === "list") {
+      const leftItems = activeListValues(getHeapObject(state, left.heapId));
+      const rightItems = activeListValues(getHeapObject(state, right.heapId));
+      return leftItems.length === rightItems.length
+        && leftItems.every((item, index) => valuesEqual(state, item, rightItems[index]));
+    }
+    if (isNumeric(left) && isNumeric(right)) {
+      return Number(left.value) === Number(right.value);
+    }
+    return left.type === right.type && left.value === right.value;
+  }
+
+  function isSameObject(left, right) {
+    if (left.heapId !== undefined || right.heapId !== undefined) {
+      return left.heapId === right.heapId;
+    }
+    return left.type === right.type && left.value === right.value;
   }
 
   function activeCallDepth(state) {
