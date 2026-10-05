@@ -602,7 +602,7 @@ print(tallest.name)
     - No `__init__`, `grow`, or `taller` frames remain; each is gone once its call completes.
     - The output is `12.5`, `16.0`, and `Cactus`. After `cactus.grow(amount=10.0)`, the cactus is `14.0` centimeters tall, so `taller` returns a reference to the cactus's object. `tallest.grow(amount=2.0)` therefore grows the cactus to `16.0`.
 
-## Part 4: Classes with Attributes of Objects from other Classes
+## Part 4: Classes that Use Other Classes
 
 ### Line class
 
@@ -646,10 +646,236 @@ pt: Point = Point(2.0, 1.0)
 print(pt)
 ~~~
 
-### __str__ magic method
+??? note "Show a solution"
 
-Next, add a __str__ magic method to the Point and Line classes above. 
+    ```python
+    class Line:
+        """A line segment from a starting point to an ending point."""
 
-### __repr__ magic method
+        start: Point
+        end: Point
 
-Finally, add a __repr__ magic method to the Point and Line classes above.
+        def __init__(self, start: Point, end: Point):
+            """Initialize a Line from start to end."""
+            self.start = start
+            self.end = end
+
+        def get_length(self) -> float:
+            """Return the length of this line."""
+            dx: float = self.end.x - self.start.x
+            dy: float = self.end.y - self.start.y
+            return (dx**2 + dy**2) ** 0.5
+
+        def get_slope(self) -> float:
+            """Return the slope of this line, from start to end."""
+            return (self.end.y - self.start.y) / (self.end.x - self.start.x)
+    ```
+
+    The `start` and `end` attributes hold references to `Point` objects, so `self.end.x` reads the `x` attribute of the `Point` object that `self.end` refers to. `get_length` uses the distance formula, and `get_slope` divides the change in `y` by the change in `x`. For example, a `Line` from `Point(2.0, 1.0)` to `Point(5.0, 5.0)` has a length of `5.0` and a slope of `1.3333333333333333`.
+
+    A vertical line's start and end have the same `x`, so `get_slope` raises a `ZeroDivisionError` for it, just as a vertical line has an undefined slope in math.
+
+### `__str__` magic method
+
+Right now, printing a `Point` or a `Line` prints something like `<__main__.Point object at 0x7f3a2c1b9d50>`. That is Python's default description of an object, and it does not tell a person anything useful about the point. A **magic method** is a method with a special name, surrounded by double underscores, that Python calls for you in certain situations. `__init__` is one you already know: Python calls it when you construct an object.
+
+When you call `str(pt)` or `print(pt)`, Python calls the object's `__str__` method and uses the string it returns. `__str__` should return a readable description meant for a person.
+
+The code below contains complete `Point` and `Line` classes, plus a `__str__` method in each class for you to finish:
+
+- `Point`: `__str__` returns the point's coordinates in parentheses, separated by a comma and a space. For a `Point` with `x` `2.0` and `y` `1.0`, it returns `"(2.0, 1.0)"`.
+- `Line`: `__str__` returns the starting point, the word `to`, and the ending point. For a `Line` from `(2.0, 1.0)` to `(5.0, 5.0)`, it returns `"(2.0, 1.0) to (5.0, 5.0)"`.
+
+`Line`'s `__str__` should *use* `Point`'s `__str__` rather than reading `self.start.x` and `self.start.y` itself. Calling `str(self.start)` calls `__str__` on the `Point` object that `self.start` refers to. The `Point` class is responsible for describing a point, so if you ever change how points are written, lines will automatically follow.
+
+~~~python { runnable=true editable=true title="You Try: __str__" }
+class Point:
+    """A point on the coordinate plane."""
+
+    x: float
+    y: float
+
+    def __init__(self, x: float, y: float):
+        """Initialize a Point at (x, y)."""
+        self.x = x
+        self.y = y
+
+    def dist_from_origin(self) -> float:
+        """Return the distance from this point to the origin."""
+        return (self.x**2 + self.y**2) ** 0.5
+
+    def translate_x(self, dx: float) -> None:
+        """Move this point dx units horizontally."""
+        self.x += dx
+
+    def translate_y(self, dy: float) -> None:
+        """Move this point dy units vertically."""
+        self.y += dy
+
+    def __str__(self) -> str:
+        """Return a readable description of this point, like (2.0, 1.0)."""
+        # TODO: Replace return "" with your implementation.
+        return ""
+
+
+class Line:
+    """A line segment from a starting point to an ending point."""
+
+    start: Point
+    end: Point
+
+    def __init__(self, start: Point, end: Point):
+        """Initialize a Line from start to end."""
+        self.start = start
+        self.end = end
+
+    def get_length(self) -> float:
+        """Return the length of this line."""
+        dx: float = self.end.x - self.start.x
+        dy: float = self.end.y - self.start.y
+        return (dx**2 + dy**2) ** 0.5
+
+    def get_slope(self) -> float:
+        """Return the slope of this line, from start to end."""
+        return (self.end.y - self.start.y) / (self.end.x - self.start.x)
+
+    def __str__(self) -> str:
+        """Return a readable description of this line, like (2.0, 1.0) to (5.0, 5.0)."""
+        # TODO: Replace return "" with your implementation. Use Point's __str__.
+        return ""
+
+
+pt: Point = Point(2.0, 1.0)
+line: Line = Line(pt, Point(5.0, 5.0))
+
+print(pt)  # Expected: (2.0, 1.0)
+print(line)  # Expected: (2.0, 1.0) to (5.0, 5.0)
+print("Line: " + str(line))  # Expected: Line: (2.0, 1.0) to (5.0, 5.0)
+pt.translate_x(1.0)
+print(line)  # Expected: (3.0, 1.0) to (5.0, 5.0)
+~~~
+
+The last two lines move `pt` and print `line` again. Because `line.start` and `pt` are aliases of one `Point` object, the line's description changes too.
+
+??? tip "Hint"
+
+    Inside `Point`'s `__str__`, `self.x` is a `float`, so convert it with `str(self.x)` before concatenating it with other strings. Inside `Line`'s `__str__`, `str(self.start)` returns whatever `Point`'s `__str__` returns.
+
+??? note "Show a solution"
+
+    ```python
+        # In the Point class:
+        def __str__(self) -> str:
+            """Return a readable description of this point, like (2.0, 1.0)."""
+            return "(" + str(self.x) + ", " + str(self.y) + ")"
+
+        # In the Line class:
+        def __str__(self) -> str:
+            """Return a readable description of this line, like (2.0, 1.0) to (5.0, 5.0)."""
+            return str(self.start) + " to " + str(self.end)
+    ```
+
+    `str(self.start)` makes a method call to `Point`'s `__str__` with `self` in that call's frame referring to the starting `Point` object.
+
+### `__repr__` magic method
+
+Python has a second magic method for describing an object as a string: `__repr__` (short for *representation*). Where `__str__` is meant for a person reading output, `__repr__` is meant for a programmer. It should return a string that looks like the Python expression that would construct an equal object. Python calls `__repr__` when you call `repr(pt)`, and also when it displays objects stored inside a list, so `print([pt])` uses `__repr__`, not `__str__`.
+
+The code below includes completed `__str__` methods. Finish the `__repr__` method in each class:
+
+- `Point`: `__repr__` returns a constructor call expression. For a `Point` with `x` `2.0` and `y` `1.0`, it returns `"Point(2.0, 1.0)"`.
+- `Line`: `__repr__` returns a constructor call expression whose arguments are the representations of its two points. For a `Line` from `(2.0, 1.0)` to `(5.0, 5.0)`, it returns `"Line(Point(2.0, 1.0), Point(5.0, 5.0))"`.
+
+Just as with `__str__`, `Line`'s `__repr__` should use `Point`'s `__repr__` by calling `repr(self.start)` and `repr(self.end)`.
+
+~~~python { runnable=true editable=true title="You Try: __repr__" }
+class Point:
+    """A point on the coordinate plane."""
+
+    x: float
+    y: float
+
+    def __init__(self, x: float, y: float):
+        """Initialize a Point at (x, y)."""
+        self.x = x
+        self.y = y
+
+    def dist_from_origin(self) -> float:
+        """Return the distance from this point to the origin."""
+        return (self.x**2 + self.y**2) ** 0.5
+
+    def translate_x(self, dx: float) -> None:
+        """Move this point dx units horizontally."""
+        self.x += dx
+
+    def translate_y(self, dy: float) -> None:
+        """Move this point dy units vertically."""
+        self.y += dy
+
+    def __str__(self) -> str:
+        """Return a readable description of this point, like (2.0, 1.0)."""
+        return "(" + str(self.x) + ", " + str(self.y) + ")"
+
+    def __repr__(self) -> str:
+        """Return a constructor expression for this point, like Point(2.0, 1.0)."""
+        # TODO: Replace return "" with your implementation.
+        return ""
+
+
+class Line:
+    """A line segment from a starting point to an ending point."""
+
+    start: Point
+    end: Point
+
+    def __init__(self, start: Point, end: Point):
+        """Initialize a Line from start to end."""
+        self.start = start
+        self.end = end
+
+    def get_length(self) -> float:
+        """Return the length of this line."""
+        dx: float = self.end.x - self.start.x
+        dy: float = self.end.y - self.start.y
+        return (dx**2 + dy**2) ** 0.5
+
+    def get_slope(self) -> float:
+        """Return the slope of this line, from start to end."""
+        return (self.end.y - self.start.y) / (self.end.x - self.start.x)
+
+    def __str__(self) -> str:
+        """Return a readable description of this line, like (2.0, 1.0) to (5.0, 5.0)."""
+        return str(self.start) + " to " + str(self.end)
+
+    def __repr__(self) -> str:
+        """Return a constructor expression for this line, like Line(Point(2.0, 1.0), Point(5.0, 5.0))."""
+        # TODO: Replace return "" with your implementation. Use Point's __repr__.
+        return ""
+
+
+pt: Point = Point(2.0, 1.0)
+line: Line = Line(pt, Point(5.0, 5.0))
+
+print(repr(pt))  # Expected: Point(2.0, 1.0)
+print(repr(line))  # Expected: Line(Point(2.0, 1.0), Point(5.0, 5.0))
+print([pt, Point(0.0, 3.0)])  # Expected: [Point(2.0, 1.0), Point(0.0, 3.0)]
+print(line)  # Expected: (2.0, 1.0) to (5.0, 5.0)
+~~~
+
+The last line checks that `print` still uses `__str__` even after you have defined `__repr__`.
+
+??? note "Show a solution"
+
+    ```python
+        # In the Point class:
+        def __repr__(self) -> str:
+            """Return a constructor expression for this point, like Point(2.0, 1.0)."""
+            return "Point(" + str(self.x) + ", " + str(self.y) + ")"
+
+        # In the Line class:
+        def __repr__(self) -> str:
+            """Return a constructor expression for this line, like Line(Point(2.0, 1.0), Point(5.0, 5.0))."""
+            return "Line(" + repr(self.start) + ", " + repr(self.end) + ")"
+    ```
+
+    Notice that `Line`'s `__repr__` calls `repr`, not `str`, on its points. Using `str(self.start)` would produce `"Line((2.0, 1.0), (5.0, 5.0))"`, which is not an expression that constructs a `Line`.
