@@ -21,7 +21,7 @@ class Rectangle:
     length: float
     width: float
 
-    def __init__(self, length: float, width: float) -> None:
+    def __init__(self, length: float, width: float):
         """Initialize a Rectangle's length and width."""
         self.name = "rectangle"
         self.length = length
@@ -44,7 +44,7 @@ class Triangle:
     base: float
     height: float
 
-    def __init__(self, base: float, height: float) -> None:
+    def __init__(self, base: float, height: float):
         """Initialize a Triangle's base and height."""
         self.name = "triangle"
         self.base = base
@@ -163,7 +163,7 @@ class Rectangle:
     length: float
     width: float
 
-    def __init__(self, length: float, width: float) -> None:
+    def __init__(self, length: float, width: float):
         """Initialize a Rectangle's length and width."""
         self.name = "rectangle"
         self.length = length
@@ -186,7 +186,7 @@ class Triangle:
     base: float
     height: float
 
-    def __init__(self, base: float, height: float) -> None:
+    def __init__(self, base: float, height: float):
         """Initialize a Triangle's base and height."""
         self.name = "triangle"
         self.base = base
@@ -306,7 +306,7 @@ class Square:
     name: str
     side: float
 
-    def __init__(self, side: float) -> None:
+    def __init__(self, side: float):
         """Initialize a Square's side length."""
         self.name = "square"
         self.side = side
@@ -407,7 +407,7 @@ class Rectangle:
     length: float
     width: float
 
-    def __init__(self, length: float, width: float) -> None:
+    def __init__(self, length: float, width: float):
         """Initialize a Rectangle's length and width."""
         self.name = "rectangle"
         self.length = length
@@ -456,7 +456,7 @@ print(rug.area())  # Expected: 12.56
         name: str
         radius: float
 
-        def __init__(self, radius: float) -> None:
+        def __init__(self, radius: float):
             """Initialize a Circle's radius."""
             self.name = "circle"
             self.radius = radius
@@ -485,7 +485,7 @@ class Square:
     name: str
     side: float
 
-    def __init__(self, side: float) -> None:
+    def __init__(self, side: float):
         """Initialize a Square's side length."""
         self.name = "square"
         self.side = side
@@ -513,7 +513,7 @@ class Parallelogram:
     base: float
     height: float
 
-    def __init__(self, base: float, height: float) -> None:
+    def __init__(self, base: float, height: float):
         """Initialize a Parallelogram's base and height."""
         self.name = "parallelogram"
         self.base = base
@@ -538,7 +538,7 @@ class Kite:
     diagonal_1: float
     diagonal_2: float
 
-    def __init__(self, diagonal_1: float, diagonal_2: float) -> None:
+    def __init__(self, diagonal_1: float, diagonal_2: float):
         """Initialize a Kite's diagonals."""
         self.diagonal_1 = diagonal_1
         self.diagonal_2 = diagonal_2
