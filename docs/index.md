@@ -21,6 +21,7 @@ This site is a learning resource for **COMP 110: Introduction to Programming** a
 4. [List Fundamentals](list-fundamentals.md): Learn how Python lists store many values under one name, how they differ from primitive types, and how loops and functions work with them.
 5. [Unit Testing and Modularity](unit-testing.md): Split a program into modules, import definitions from one file into another, and write pytest unit tests that check a function's behavior.
 6. [Intro to OOP](intro-oop.md): Learn how to define your own types with classes, construct objects, and give those objects behavior with methods. 
+6. [Protocols and Interfaces](protocols-interfaces.md): Describe the attributes and methods a function needs with a protocol, so that one function can work with objects of many different classes.
 
 
 ## Practice

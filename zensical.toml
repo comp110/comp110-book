@@ -20,6 +20,7 @@ nav = [
     {"List Fundamentals" = "list-fundamentals.md"},
     {"Unit Testing and Modularity" = "unit-testing.md"},
     {"Intro to OOP" = "intro-oop.md"},  
+    {"Protocols and Interfaces" = "protocols-interfaces.md"},  
   ]},
   {"Practice" = [
     {"Conditional Statements" = "conditional-practice.md"},
