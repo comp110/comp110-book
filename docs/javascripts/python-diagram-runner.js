@@ -26,6 +26,12 @@
   // Names of the classes defined in the program currently being traced, so
   // type annotations can refer to them. Reset by buildDiagramTrace.
   let knownClassNames = new Set();
+  // Classes of the program currently being traced, so type checks can test
+  // whether an object structurally satisfies a Protocol. Reset by buildDiagramTrace.
+  let programClasses = new Map();
+  // Names a program may import from typing; they only affect type annotations.
+  const supportedTypingImports = new Set(["Protocol"]);
+  const classHeaderPattern = /^class\s+([A-Za-z_]\w*)\s*(?:\(\s*([A-Za-z_][\w.]*)?\s*\))?\s*:\s*$/;
 
   class DiagramError extends Error {
     constructor(line, message, highlight = null) {
@@ -1287,7 +1293,7 @@
   function collectClassNames(lines) {
     const names = new Set();
     lines.forEach((line) => {
-      const match = /^class\s+([A-Za-z_]\w*)\s*:\s*$/.exec(line.trimmed);
+      const match = classHeaderPattern.exec(line.trimmed);
       if (match) {
         names.add(match[1]);
       }
@@ -1341,11 +1347,27 @@
     if (!/^class\b/.test(line.trimmed)) {
       return null;
     }
-    const match = /^class\s+([A-Za-z_]\w*)\s*:\s*$/.exec(line.trimmed);
+    const match = classHeaderPattern.exec(line.trimmed);
     if (!match) {
       throw new DiagramError(line.number, `Unsupported class syntax: ${line.trimmed}`, lineCodeSpan(line));
     }
     const name = match[1];
+    const baseName = match[2] || null;
+    if (baseName && baseName !== "Protocol") {
+      throw new DiagramError(
+        line.number,
+        `Unsupported class syntax: ${line.trimmed}. Only Protocol may be listed as a base class in this diagram.`,
+        lineCodeSpan(line),
+      );
+    }
+    const isProtocol = baseName === "Protocol";
+    if (isProtocol && !importsTypingName(lines, "Protocol")) {
+      throw new DiagramError(
+        line.number,
+        `NameError on Line ${line.number}: name 'Protocol' is not defined. Add from typing import Protocol.`,
+        lineCodeSpan(line),
+      );
+    }
     const body = findFunctionBody(lines, classIndex, line.indent, "Class definitions");
     const attributes = [];
     const methods = new Map();
@@ -1361,6 +1383,30 @@
       }
       if (isDocstringStart(trimmed)) {
         index = docstringEndIndex(lines, index) - 1;
+        continue;
+      }
+      // Protocol methods only describe a signature, as in def phrase(self) -> str: ...
+      const stubMatch = /^(def\s.*:)\s*\.\.\.\s*$/.exec(trimmed);
+      if (stubMatch) {
+        if (!isProtocol) {
+          throw new DiagramError(
+            member.number,
+            "Method bodies on the same line as def (such as : ...) are only supported in Protocol classes in this diagram.",
+            lineCodeSpan(member),
+          );
+        }
+        const stub = parseFunctionDefinition({ ...member, trimmed: stubMatch[1] });
+        if (!stub) {
+          throw new DiagramError(member.number, `Unsupported method syntax: ${trimmed}`, lineCodeSpan(member));
+        }
+        validateReturnAnnotation(stub, member, true);
+        methods.set(stub.name, {
+          ...stub,
+          isStub: true,
+          line: member.number,
+          lineInfo: member,
+          qualifiedName: `${name}#${stub.name}`,
+        });
         continue;
       }
       const parsedMethod = parseFunctionDefinition(member);
@@ -1407,11 +1453,28 @@
       bodyEndIndex: body.endIndex,
       endLine: body.endLine,
       heapId: null,
+      isProtocol,
       line: line.number,
       lineInfo: line,
       methods,
       name,
     };
+  }
+
+  function parseTypingImport(trimmed) {
+    const match = /^from\s+typing\s+import\s+(.+)$/.exec(trimmed);
+    if (!match) {
+      return null;
+    }
+    const names = match[1].split(",").map((name) => name.trim());
+    return names.every((name) => supportedTypingImports.has(name)) ? names : null;
+  }
+
+  function importsTypingName(lines, name) {
+    return lines.some((line) => {
+      const names = parseTypingImport(line.trimmed);
+      return Boolean(names && names.includes(name));
+    });
   }
 
   function parseFunctionDefinition(line) {
@@ -1633,6 +1696,11 @@
       };
     }
 
+    // Nested or attribute-based targets such as grid[r][c] or self.items[i].
+    if (/^[A-Za-z_][\w.]*(?:\[.*\])+$/.test(left)) {
+      return { augmentedOperator: split.operator, expression, kind: "nestedSubscript", targetSource: left };
+    }
+
     if (split.operator) {
       if (!identifierPattern.test(left)) {
         throw new DiagramError(lineNumber, `Unsupported assignment syntax: ${source}`);
@@ -1664,6 +1732,7 @@
     const lines = parseSourceLines(source);
     knownClassNames = collectClassNames(lines);
     const program = parseProgram(lines);
+    programClasses = program.classes;
     const state = {
       activeFrameId: 0,
       nextFrameId: 1,
@@ -1721,7 +1790,21 @@
         continue;
       }
       if (/^(import|from)\b/.test(trimmed)) {
-        throw new DiagramError(line.number, "Imports are not supported in python_diagram_runner examples.");
+        const typingNames = parseTypingImport(trimmed);
+        if (!typingNames) {
+          throw new DiagramError(
+            line.number,
+            "Imports are not supported in python_diagram_runner examples, except from typing import Protocol.",
+          );
+        }
+        addStep(
+          state,
+          line.number,
+          `Imported ${typingNames.join(", ")} from typing; it is only used in type annotations, so the diagram does not draw it.`,
+          lineCodeSpan(line),
+        );
+        index += 1;
+        continue;
       }
       if (/^if\b/.test(trimmed)) {
         const result = executeIf(state, index, endIndex, baseIndent, options);
@@ -2119,6 +2202,17 @@
   }
 
   function executeClassDefinition(state, cls) {
+    // Rule: protocols only describe types for annotations, so they are never
+    // drawn in a frame or on the heap.
+    if (cls.isProtocol) {
+      addStep(
+        state,
+        cls.line,
+        `Protocol definition: ${cls.name} only describes a type for annotations, so it is not added to the diagram; skipped lines ${cls.line + 1}-${cls.endLine}.`,
+        lineCodeSpan(cls.lineInfo),
+      );
+      return;
+    }
     const frame = getActiveFrame(state);
     const heapId = state.heap.length;
     cls.heapId = heapId;
@@ -2139,6 +2233,10 @@
   function executeAssignment(state, line, assignment) {
     if (assignment.kind === "subscript") {
       executeSubscriptAssignment(state, line, assignment);
+      return;
+    }
+    if (assignment.kind === "nestedSubscript") {
+      executeNestedSubscriptAssignment(state, line, assignment);
       return;
     }
     if (assignment.kind === "attribute") {
@@ -2195,6 +2293,42 @@
       state,
       line.number,
       `Assigned ${assignment.name}[${formatValue(indexValue)}] ${operatorLabel} ${formatValue(value)} in heap ID:${heapObject.id}.`,
+      lineCodeSpan(line),
+    );
+  }
+
+  // Python evaluates the right-hand side first, then the list named on the
+  // left-hand side, then the index, and finally stores the value in that slot.
+  function executeNestedSubscriptAssignment(state, line, assignment) {
+    const valueExpr = parseExpression(assignment.expression, line.number, expressionBaseOffset(line, assignment.expression));
+    let value = evaluateExpression(valueExpr, state);
+    const targetExpr = parseExpression(assignment.targetSource, line.number, expressionBaseOffset(line, assignment.targetSource));
+    if (targetExpr.type !== "subscript") {
+      throw new DiagramError(line.number, `Unsupported assignment target: ${assignment.targetSource}`);
+    }
+    const collection = evaluateExpression(targetExpr.collection, state);
+    if (collection.type !== "list") {
+      throw new DiagramError(
+        line.number,
+        `TypeError on Line ${line.number}: only lists support item assignment in this diagram.`,
+        targetExpr.collection.span,
+      );
+    }
+    const heapObject = getHeapObject(state, collection.heapId);
+    const active = activeListSlots(heapObject);
+    const indexValue = evaluateExpression(targetExpr.index, state);
+    const normalizedIndex = resolveIndex(indexValue, active.length, targetExpr.index, "list");
+    const slot = active[normalizedIndex];
+    const operatorLabel = assignment.augmentedOperator ? `${assignment.augmentedOperator}=` : "=";
+    if (assignment.augmentedOperator) {
+      value = applyBinaryOperator(assignment.augmentedOperator, slot.value, value, line.number);
+    }
+    slot.previousValues.push(slot.value);
+    slot.value = value;
+    addStep(
+      state,
+      line.number,
+      `Assigned ${formatValue(collection)}[${formatValue(indexValue)}] ${operatorLabel} ${formatValue(value)} in heap ID:${heapObject.id}.`,
       lineCodeSpan(line),
     );
   }
@@ -2310,7 +2444,7 @@
       throw new DiagramError(expression.line, "Keyword arguments are not supported for print.");
     }
     const values = expression.args.map((arg) => evaluateExpression(arg, state));
-    const text = values.map((value) => outputValue(state, value)).join(" ");
+    const text = values.map((value) => outputValue(state, value, expression)).join(" ");
     state.output.push(text);
     addStep(state, expression.line, `Printed Output: ${text}`, expression.span);
     return makeNoneValue();
@@ -2342,7 +2476,7 @@
     } else if (constructorName === "float") {
       result = convertToFloat(value, expression);
     } else if (constructorName === "str") {
-      result = makeValue("str", value ? outputValue(state, value) : "");
+      result = makeValue("str", value ? outputValue(state, value, expression) : "");
     } else {
       result = makeValue("bool", value ? isTruthy(value) : false);
     }
@@ -2466,6 +2600,31 @@
     return expression.type === "call"
       && expression.callee.type === "name"
       && expression.callee.name === "len";
+  }
+
+  function isReprCall(expression) {
+    return expression.type === "call"
+      && expression.callee.type === "name"
+      && expression.callee.name === "repr";
+  }
+
+  function evaluateReprCall(state, expression) {
+    if (expression.keywords.length || expression.args.length !== 1) {
+      throw new DiagramError(
+        expression.line,
+        `TypeError on Line ${expression.line}: repr() expects exactly 1 positional argument.`,
+        expression.span,
+      );
+    }
+    const value = evaluateExpression(expression.args[0], state);
+    const result = makeValue("str", formatValueRepr(state, value, expression));
+    addStep(
+      state,
+      expression.line,
+      `Built-in call: repr(${formatValue(value)}) -> ${formatValue(result)}.`,
+      expression.span,
+    );
+    return result;
   }
 
   function isListConstructorCall(expression) {
@@ -2890,25 +3049,33 @@
     return value && value.display !== undefined ? value.display : String(value);
   }
 
-  function outputValue(state, value) {
+  // Matches Python's str(): objects use __str__, falling back to __repr__.
+  // `node` is the expression that triggered the conversion, used as the
+  // call site when a user-defined dunder method runs.
+  function outputValue(state, value, node = null) {
     if (!value) {
       return "";
-    }
-    if (value.type === "list") {
-      return formatValueRepr(state, value);
     }
     if (value.type === "str") {
       return String(value.value);
     }
-    if (isObjectValue(value) || value.type === "class") {
-      return formatValueRepr(state, value);
+    if (isObjectValue(value)) {
+      const text = callStringMethod(state, value, "__str__", node);
+      return text !== null ? text : formatValueRepr(state, value, node);
+    }
+    if (value.type === "list" || value.type === "class") {
+      return formatValueRepr(state, value, node);
     }
     return formatValue(value);
   }
 
-  function formatValueRepr(state, value, seen = new Set()) {
+  // Matches Python's repr(): objects use __repr__, and strings are quoted.
+  function formatValueRepr(state, value, node = null, seen = new Set()) {
     if (!value) {
       return "None";
+    }
+    if (value.type === "str") {
+      return pythonStringRepr(value.value);
     }
     if (value.type === "list") {
       if (seen.has(value.heapId)) {
@@ -2917,11 +3084,12 @@
       const heapObject = getHeapObject(state, value.heapId);
       const nextSeen = new Set(seen);
       nextSeen.add(value.heapId);
-      const parts = (heapObject ? activeListValues(heapObject) : []).map((item) => formatValueRepr(state, item, nextSeen));
+      const parts = (heapObject ? activeListValues(heapObject) : []).map((item) => formatValueRepr(state, item, node, nextSeen));
       return `[${parts.join(", ")}]`;
     }
     if (isObjectValue(value)) {
-      return `<${value.type} object at ${formatValue(value)}>`;
+      const text = callStringMethod(state, value, "__repr__", node);
+      return text !== null ? text : `<${value.type} object at ${formatValue(value)}>`;
     }
     if (value.type === "class") {
       return `<class '${value.className}'>`;
@@ -2929,9 +3097,59 @@
     return formatValue(value);
   }
 
+  // Runs a user-defined __str__ or __repr__ as a real method call so its frame
+  // appears in the diagram. Returns null when the class does not define it.
+  function callStringMethod(state, value, methodName, node) {
+    const heapObject = getHeapObject(state, value.heapId);
+    const cls = heapObject && state.program.classes.get(heapObject.className);
+    const method = cls && cls.methods.get(methodName);
+    if (!method) {
+      return null;
+    }
+    const lineNumber = node ? node.line : null;
+    const span = node ? node.span : null;
+    const result = callFunction(state, method, [value], [], lineNumber, span);
+    if (!result || result.type !== "str") {
+      throw new DiagramError(
+        lineNumber,
+        `TypeError on Line ${lineNumber}: ${methodName} returned non-string (type ${result ? result.type : "None"}).`,
+        span,
+      );
+    }
+    return result.value;
+  }
+
+  function pythonStringRepr(text) {
+    const quote = text.includes("'") && !text.includes('"') ? '"' : "'";
+    let escaped = text.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+    if (quote === "'") {
+      escaped = escaped.replace(/'/g, "\\'");
+    }
+    return `${quote}${escaped}${quote}`;
+  }
+
+  // Protocols are structural: an object satisfies one when its class defines
+  // every method and attribute the protocol lists, whatever the class is named.
+  function satisfiesProtocol(value, protocol) {
+    if (!isObjectValue(value)) {
+      return false;
+    }
+    const cls = programClasses.get(value.type);
+    if (!cls) {
+      return false;
+    }
+    const hasMethods = [...protocol.methods.keys()].every((name) => cls.methods.has(name));
+    const hasAttributes = protocol.attributes.every((attribute) => cls.attributes.some((item) => item.name === attribute.name));
+    return hasMethods && hasAttributes;
+  }
+
   function valueMatchesType(value, expected) {
     if (!expected) {
       return true;
+    }
+    const protocol = programClasses.get(expected);
+    if (protocol && protocol.isProtocol) {
+      return satisfiesProtocol(value, protocol);
     }
     if (expected === "float") {
       return value.type === "float" || value.type === "int";
@@ -2970,6 +3188,12 @@
       if (char === "'" || char === '"') {
         const parsed = readString(source, index, lineNumber);
         tokens.push({ end: baseOffset + parsed.nextIndex, type: "string", value: parsed.value, start: baseOffset + index });
+        index = parsed.nextIndex;
+        continue;
+      }
+      if ((char === "f" || char === "F") && (source[index + 1] === "'" || source[index + 1] === '"')) {
+        const parsed = readFString(source, index, lineNumber, baseOffset);
+        tokens.push({ end: baseOffset + parsed.nextIndex, parts: parsed.parts, type: "fstring", value: source.slice(index, parsed.nextIndex), start: baseOffset + index });
         index = parsed.nextIndex;
         continue;
       }
@@ -3022,6 +3246,85 @@
       }
     }
     throw new DiagramError(lineNumber, "Unclosed string literal.");
+  }
+
+  // Splits an f-string into literal text and {expression} parts. Each
+  // expression keeps its source offset so diagnostics underline the right code.
+  function readFString(source, start, lineNumber, baseOffset) {
+    const quote = source[start + 1];
+    const escapes = { n: "\n", r: "\r", t: "\t", "\\": "\\", "'": "'", '"': '"' };
+    const parts = [];
+    let text = "";
+    let index = start + 2;
+    while (index < source.length) {
+      const char = source[index];
+      if (char === "\\") {
+        const escapedChar = source[index + 1] || "";
+        text += Object.prototype.hasOwnProperty.call(escapes, escapedChar) ? escapes[escapedChar] : escapedChar;
+        index += 2;
+      } else if (char === quote) {
+        if (text) {
+          parts.push({ kind: "text", value: text });
+        }
+        return { nextIndex: index + 1, parts };
+      } else if ((char === "{" || char === "}") && source[index + 1] === char) {
+        text += char;
+        index += 2;
+      } else if (char === "}") {
+        throw new DiagramError(lineNumber, "f-string: single '}' is not allowed.");
+      } else if (char === "{") {
+        if (text) {
+          parts.push({ kind: "text", value: text });
+          text = "";
+        }
+        const field = readFStringField(source, index + 1, quote, lineNumber);
+        parts.push({ conversion: field.conversion, kind: "expr", offset: baseOffset + index + 1, source: field.source });
+        index = field.nextIndex;
+      } else {
+        text += char;
+        index += 1;
+      }
+    }
+    throw new DiagramError(lineNumber, "Unclosed string literal.");
+  }
+
+  function readFStringField(source, start, quote, lineNumber) {
+    let depth = 0;
+    let innerQuote = null;
+    for (let index = start; index < source.length; index += 1) {
+      const char = source[index];
+      if (innerQuote) {
+        if (char === innerQuote) {
+          innerQuote = null;
+        }
+        continue;
+      }
+      if (char === quote) {
+        break;
+      }
+      if (char === "'" || char === '"') {
+        innerQuote = char;
+      } else if (char === "(" || char === "[") {
+        depth += 1;
+      } else if (char === ")" || char === "]") {
+        depth -= 1;
+      } else if (depth === 0 && char === ":") {
+        throw new DiagramError(lineNumber, "Format specifiers such as {value:.2f} are not supported in this diagram.");
+      } else if (depth === 0 && char === "}") {
+        let expressionSource = source.slice(start, index);
+        let conversion = null;
+        const conversionMatch = /!([rsa])\s*$/.exec(expressionSource);
+        if (conversionMatch) {
+          conversion = conversionMatch[1];
+          expressionSource = expressionSource.slice(0, conversionMatch.index);
+        }
+        if (!expressionSource.trim()) {
+          throw new DiagramError(lineNumber, "f-string: empty expression not allowed.");
+        }
+        return { conversion, nextIndex: index + 1, source: expressionSource };
+      }
+    }
+    throw new DiagramError(lineNumber, "f-string: expecting '}'.");
   }
 
   class TokenStream {
@@ -3200,6 +3503,15 @@
         type: "literal",
         value: makeValue("str", token.value),
       };
+    } else if (token.type === "fstring") {
+      node = {
+        line: stream.lineNumber,
+        parts: token.parts.map((part) => (part.kind === "text"
+          ? part
+          : { conversion: part.conversion, kind: "expr", node: parseExpression(part.source, stream.lineNumber, part.offset) })),
+        span: { from: token.start, to: token.end },
+        type: "fstring",
+      };
     } else if (token.type === "identifier") {
       if (token.value === "True" || token.value === "False") {
         node = {
@@ -3322,6 +3634,20 @@
     if (node.type === "literal") {
       return node.value;
     }
+    if (node.type === "fstring") {
+      const text = node.parts.map((part) => {
+        if (part.kind === "text") {
+          return part.value;
+        }
+        const value = evaluateExpression(part.node, state);
+        return part.conversion === "r" || part.conversion === "a"
+          ? formatValueRepr(state, value, part.node)
+          : outputValue(state, value, part.node);
+      }).join("");
+      const result = makeValue("str", text);
+      addStep(state, node.line, `F-string: built ${formatValue(result)}.`, node.span);
+      return result;
+    }
     if (node.type === "name") {
       return resolveName(state, node.name, node.line, node.span);
     }
@@ -3428,6 +3754,9 @@
       if (isLenCall(node)) {
         return evaluateLenCall(state, node);
       }
+      if (isReprCall(node)) {
+        return evaluateReprCall(state, node);
+      }
       if (node.callee.type === "attribute") {
         return evaluateMethodCall(state, node);
       }
@@ -3439,6 +3768,11 @@
         name: keyword.name,
         value: evaluateExpression(keyword.value, state),
       }));
+      // Protocols are never bound in the diagram, so catch Protocol() before name lookup.
+      const protocol = programClasses.get(node.callee.name);
+      if (protocol && protocol.isProtocol) {
+        throw new DiagramError(node.line, `TypeError on Line ${node.line}: Protocols cannot be instantiated.`, node.span);
+      }
       const callable = resolveName(state, node.callee.name, node.line, node.callee.span);
       if (callable.type === "class") {
         return evaluateConstructorCall(state, state.program.classes.get(callable.className), args, keywords, node);
@@ -3459,6 +3793,14 @@
   function applyBinaryOperator(operator, left, right, lineNumber) {
     if (operator === "+" && left.type === "str" && right.type === "str") {
       return makeValue("str", left.value + right.value);
+    }
+    if (operator === "*" && (left.type === "str" || right.type === "str")) {
+      const text = left.type === "str" ? left : right;
+      const count = left.type === "str" ? right : left;
+      if (count.type !== "int" && count.type !== "bool") {
+        throw new DiagramError(lineNumber, `TypeError on Line ${lineNumber}: can't multiply a str by a ${count.type}; use an int.`);
+      }
+      return makeValue("str", text.value.repeat(Math.max(0, Number(count.value))));
     }
     if (!isNumeric(left) || !isNumeric(right)) {
       throw new DiagramError(lineNumber, `${operator} expects number operands, or two strings for +.`);
