@@ -3,15 +3,15 @@ title: More OOP Practice
 description: Diagramming, diagramming, diagramming!
 ---
 
-This page has four programs to read, trace, and diagram. Together they practice three ideas:
+This page has four programs to read, trace, and diagram. Together, they practice three ideas:
 
-- how **classes and protocols work together**, so that one piece of code can use objects of several different classes,
-- **when Python calls the magic methods** `__init__`, `__str__`, and `__repr__`, and what happens when a class does not define them, and
-- **dynamic dispatch**: how Python decides which method body to run when the same method call can reach objects of different classes.
+- How **classes and protocols work together**, so that one piece of code can use objects of several different classes,
+- **When Python calls the magic methods** `__init__`, `__str__`, and `__repr__`, and what happens when a class does not define them, and
+- **Dynamic dispatch**: how Python decides which method body to run when the same method call can reach objects of different classes.
 
 For a full introduction to protocols, see [Protocols and Interfaces](protocols-interfaces.md). For more practice writing `__str__` and `__repr__`, see [Practice: Classes, Objects, and Methods](intro-oop-practice.md).
 
-## A receipt from purchases at a movie theater! 
+## A receipt from purchases at a movie theater! (CL19)
 
 A movie theater sells tickets and popcorn, and prints a receipt with the total price including tax. Read the whole program before reading the explanations below it.
 
@@ -140,13 +140,10 @@ This program has three ordinary classes and one protocol, and each one has a dif
 
 `Receipt` never mentions `Ticket` or `Popcorn`. Its `items` attribute is annotated `list[ReceiptItem]`, and `add`'s parameter is annotated `item: ReceiptItem`. In the other direction, neither `Ticket` nor `Popcorn` mentions `ReceiptItem`. They **satisfy** the protocol simply because each class defines every method the protocol lists, with matching parameter and return types. That is why `my_receipt.add(late)` and `my_receipt.add(snack)` are both allowed, even though `late` and `snack` refer to objects of different classes.
 
-The protocol is the agreement between the two sides. If the theater starts selling a `Soda` class, `Receipt` does not need to change: any class with a `price` method that returns a `float` can be added to a receipt.
+The protocol is the agreement between the two sides. If we add a `Drink` class, `Receipt` does not need to change: any class with `__str__` and a `price` method that returns a `float` can be added to a receipt.
 
-A protocol only matters to the type checker and to people reading the code. When the program runs, the `class ReceiptItem(Protocol):` definition does not change which methods are called, and a `ReceiptItem` object is never constructed. This is why the memory diagrams on this page never show a protocol in Globals or on the heap.
+When the program runs, the `class ReceiptItem(Protocol):` definition does not change which methods are called, and a `ReceiptItem` object is never constructed. This is why our memory diagrams will never show a protocol in Globals or on the heap.
 
-??? tip "Why does `ReceiptItem` list `__str__`?"
-
-    Every object in Python already has a `__str__` method, even if its class does not define one (see the next section). So every class satisfies the `__str__` part of `ReceiptItem` automatically. Listing it in the protocol still tells readers something useful: code that receives a `ReceiptItem` is expected to print it. The `price` method is the part of the protocol a class could actually be missing.
 
 ### When Magic Methods Are Called
 
@@ -180,9 +177,9 @@ Every object starts out with a default version of each magic method. Defining a 
 | defines only `__str__` | what `__str__` returns | the default: `<__main__.Ticket object at 0x102098590>` |
 | defines neither | the default: `<__main__.Ticket object at 0x102098590>` | the default: `<__main__.Ticket object at 0x102098590>` |
 
-The default text names the object's class and its location in memory, so the number after `0x` changes from run to run. The second row matters: when a class has no `__str__`, Python falls back to `__repr__`. So a class that defines only `__repr__` still prints something readable.
+The default text names the object's class and its location in memory (the `0x...` part of the output).
 
-`__init__` has a default too. A class without an `__init__` method, such as `BopIt` in the last example on this page, is constructed with no arguments: `BopIt()`. Its objects start with no attributes assigned.
+`__init__` has a default, too. A class without an `__init__` method, such as `BopIt` in the last example on this page, is constructed with no arguments: `BopIt()`. Its objects start with no attributes.
 
 ### Dynamic Dispatch in `total`
 
