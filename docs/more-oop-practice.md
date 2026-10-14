@@ -337,9 +337,9 @@ while idx < len(game):
 The loop body evaluates `game[idx].phrase()` twice, and each evaluation calls a different `phrase` method:
 
 - When `idx` is `0`, `game[idx]` refers to the `BopIt` object, so `BopIt`'s `phrase` is called. It returns `"Bop It! "`.
-- When `idx` is `1`, `game[idx]` refers to the `RepeatIt` object, so `RepeatIt`'s `phrase` is called. Inside it, `self.cmd.phrase()` is a **second** dynamically dispatched call. `self.cmd` refers to the `TwistIt` object, so `TwistIt`'s `phrase` is called, and its frame appears on the stack *above* the `RepeatIt#phrase` frame. It returns `"Twist It! "`, and `RepeatIt`'s `phrase` returns `"Twist It! " * 2`, which is `"Twist It! Twist It! "`.
+- When `idx` is `1`, `game[idx]` refers to the `RepeatIt` object, so `RepeatIt`'s `phrase` is called. Inside it, `self.cmd.phrase()` is a **second** dynamically dispatched call. `self.cmd` refers to the `TwistIt` object, so `TwistIt`'s `phrase` is called, and its frame appears on the stack below the `RepeatIt#phrase` frame. It returns `"Twist It! "`, and `RepeatIt`'s `phrase` returns `"Twist It! " * 2`, which repeats the contents of the string `"Twist It! "` two times: `"Twist It! Twist It! "`.
 
-Notice that `RepeatIt`'s `phrase` method does not know or care which class `self.cmd` refers to. It works with any `Command`.
+Notice that `RepeatIt`'s `phrase` method does not know or care which class `self.cmd` refers to. It works with any `Command` object.
 
 ??? note "Predict: a `RepeatIt` inside a `RepeatIt`"
 
