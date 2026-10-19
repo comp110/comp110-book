@@ -3,7 +3,7 @@ title: More OOP Practice
 description: Diagramming, diagramming, diagramming!
 ---
 
-This page has four programs to read, trace, and diagram. Together, they practice three ideas:
+This page has four programs, each of which were covered in class. Together, they practice three ideas:
 
 - How **classes and protocols work together**, so that one piece of code can use objects of several different classes,
 - **When Python calls the magic methods** `__init__`, `__str__`, and `__repr__`, and what happens when a class does not define them, and

@@ -36,4 +36,8 @@ This site is a learning resource for **COMP 110: Introduction to Programming** a
     2. [List and while Loops](lists/list-while-practice.md): Practice using while loops to read, count, search, and build lists, including nested loops over 2D lists.
     <!-- 3. [List and for Loops](lists/list-for-loop-practice.md): Use for loops to visit every element of a list, and learn when a for loop or a while loop is the better fit. -->
 
-6. [Object-Oriented Programming Basics](intro-oop-practice.md): Trace memory diagrams, write classes and methods, and evaluate code that works with objects.
+6. Object-Oriented Programming
+
+    1. [Object-Oriented Programming Basics](intro-oop-practice.md): Trace memory diagrams, write classes and methods, and evaluate code that works with objects.
+    2. [OOP Examples from Lectures](more-oop-practice.md): Four code listings covered in class!
+    3. [Additional Quiz 02 Practice](advanced-oop-practice.md): Mixed practice with classes, objects, methods, magic methods, protocols, 2D lists, and nested loops.
