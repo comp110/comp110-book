@@ -1,7 +1,7 @@
 (function () {
   const canvasWidth = 1080;
   const canvasBaseHeight = 640;
-  const maxTraceSteps = 280;
+  const maxTraceSteps = 1000;
   const bindingRowHeight = 30;
   const bindingValueGap = 9;
   const frameMetaRowHeight = 26;
@@ -1685,7 +1685,7 @@
     }
 
     const subscriptMatch = /^([A-Za-z_]\w*)(\[.*\])$/.exec(left);
-    if (subscriptMatch) {
+    if (subscriptMatch && isSingleBracketGroup(subscriptMatch[2])) {
       const target = parseAssignmentTarget(subscriptMatch[1], subscriptMatch[2], lineNumber);
       return {
         augmentedOperator: split.operator,
@@ -1718,6 +1718,23 @@
       validateTypeName(declaredType, lineNumber);
     }
     return { declaredType, expression, kind: "name", name };
+  }
+
+  // True when the opening "[" closes at the very end, so items[0] matches but grid[0][1] does not.
+  function isSingleBracketGroup(bracketGroup) {
+    let depth = 0;
+    for (let index = 0; index < bracketGroup.length; index += 1) {
+      const char = bracketGroup[index];
+      if (char === "[" || char === "(") {
+        depth += 1;
+      } else if (char === "]" || char === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          return index === bracketGroup.length - 1;
+        }
+      }
+    }
+    return false;
   }
 
   function parseAssignmentTarget(name, bracketGroup, lineNumber) {

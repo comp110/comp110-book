@@ -41,7 +41,7 @@ class Book:
     pages: int
     pages_read: int
 
-    def __init__(self, title: str, pages: int) -> None:
+    def __init__(self, title: str, pages: int):
         """Initialize a Book that has not been started."""
         self.title = title
         self.pages = pages
@@ -121,7 +121,7 @@ Using `novel`, `same`, and `guide` from question 1.1(b), write **one line** for 
 
 A list can hold references to objects, just like a variable can. On paper, draw the complete memory diagram for this program as it would look just before it finishes, and write down its output. Then step through it and compare.
 
-~~~python
+~~~python_diagram_runner { editable=true title="Book Diagram" }
 class Book:
     """A book on a reading list."""
 
@@ -129,7 +129,7 @@ class Book:
     pages: int
     pages_read: int
 
-    def __init__(self, title: str, pages: int) -> None:
+    def __init__(self, title: str, pages: int):
         """Initialize a Book that has not been started."""
         self.title = title
         self.pages = pages
@@ -182,7 +182,7 @@ class Book:
     pages: int
     pages_read: int
 
-    def __init__(self, title: str, pages: int) -> None: ...
+    def __init__(self, title: str, pages: int): ...
     def read(self, pages: int) -> None: ...
     def __str__(self) -> str: ...
     def __repr__(self) -> str: ...
@@ -250,7 +250,7 @@ class Track:
     artist: str
     plays: int
 
-    def __init__(self, title: str, artist: str, plays: int) -> None:
+    def __init__(self, title: str, artist: str, plays: int):
         """Initialize a Track's title, artist, and number of plays."""
         self.title = title
         self.artist = artist
@@ -325,7 +325,7 @@ class BikeStation:
     bikes: int
     capacity: int
 
-    def __init__(self, name: str, bikes: int, capacity: int) -> None:
+    def __init__(self, name: str, bikes: int, capacity: int):
         """Initialize a BikeStation's name, number of bikes, and capacity."""
         self.name = name
         self.bikes = bikes
@@ -404,7 +404,7 @@ class BikeStation:
     bikes: int
     capacity: int
 
-    def __init__(self, name: str, bikes: int, capacity: int) -> None:
+    def __init__(self, name: str, bikes: int, capacity: int):
         """Initialize a BikeStation's name, number of bikes, and capacity."""
         self.name = name
         self.bikes = bikes
@@ -483,7 +483,7 @@ class BikeStation:
     bikes: int
     capacity: int
 
-    def __init__(self, name: str, bikes: int, capacity: int) -> None:
+    def __init__(self, name: str, bikes: int, capacity: int):
         """Initialize a BikeStation's name, number of bikes, and capacity."""
         self.name = name
         self.bikes = bikes
@@ -583,7 +583,7 @@ class Reading:
     title: str
     pages_left: int
 
-    def __init__(self, title: str, pages: int) -> None:
+    def __init__(self, title: str, pages: int):
         """Initialize a Reading with pages pages left to read."""
         self.title = title
         self.pages_left = pages
@@ -610,7 +610,7 @@ class ProblemSet:
     problems: int
     solved: int
 
-    def __init__(self, title: str, problems: int) -> None:
+    def __init__(self, title: str, problems: int):
         """Initialize a ProblemSet with no problems solved."""
         self.title = title
         self.problems = problems
@@ -642,7 +642,7 @@ class Lecture:
     length: int
     minutes_watched: int
 
-    def __init__(self, title: str, length: int) -> None:
+    def __init__(self, title: str, length: int):
         """Initialize a Lecture of length minutes that has not been watched."""
         self.title = title
         self.length = length
@@ -689,7 +689,7 @@ class Reading:
     title: str
     pages_left: int
 
-    def __init__(self, title: str, pages: int) -> None:
+    def __init__(self, title: str, pages: int):
         """Initialize a Reading with pages pages left to read."""
         self.title = title
         self.pages_left = pages
@@ -716,7 +716,7 @@ class ProblemSet:
     problems: int
     solved: int
 
-    def __init__(self, title: str, problems: int) -> None:
+    def __init__(self, title: str, problems: int):
         """Initialize a ProblemSet with no problems solved."""
         self.title = title
         self.problems = problems
@@ -748,7 +748,7 @@ class Lecture:
     length: int
     minutes_watched: int
 
-    def __init__(self, title: str, length: int) -> None:
+    def __init__(self, title: str, length: int):
         """Initialize a Lecture of length minutes that has not been watched."""
         self.title = title
         self.length = length
@@ -879,7 +879,7 @@ Add a class `Flashcards` to your program from 4.2 so that it satisfies `Task`. A
         title: str
         cards_left: int
 
-        def __init__(self, title: str, cards: int) -> None:
+        def __init__(self, title: str, cards: int):
             """Initialize a Flashcards deck with cards cards left to review."""
             self.title = title
             self.cards_left = cards
@@ -1296,7 +1296,7 @@ print(chart.seats[0] is chart.seats[1])  # Expected: False
 
         seats: list[list[str]]
 
-        def __init__(self, rows: int, cols: int) -> None:
+        def __init__(self, rows: int, cols: int):
             """Initialize a chart with rows rows of cols empty seats each."""
             self.seats = []
             row_idx: int = 0
@@ -1349,7 +1349,7 @@ class SeatingChart:
 
     seats: list[list[str]]
 
-    def __init__(self, rows: int, cols: int) -> None:
+    def __init__(self, rows: int, cols: int):
         """Initialize a chart with rows rows of cols empty seats each."""
         # TODO: Paste your implementation.
         self.seats = []
